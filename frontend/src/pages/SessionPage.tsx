@@ -590,13 +590,6 @@ export function SessionPage() {
   const directSessionKey = searchParams.get('session') ? Number(searchParams.get('session')) : undefined
   const roundParam = roundPath ? Number(roundPath) : searchParams.get('round') ? Number(searchParams.get('round')) : undefined
   const seasonParam = searchParams.get('season') ? Number(searchParams.get('season')) : season
-  const { data: downloadedData } = useQuery({
-    queryKey: ['sessionDownloaded', sessionKey],
-    queryFn: () => api.getSessionDownloaded(sessionKey!),
-    enabled: !!sessionKey,
-    staleTime: 60 * 1000,
-  })
-  const hudEnabled = searchParams.get('hud') === '1' || downloadedData?.downloaded === true
 
   const { data: scheduleData } = useNextSession()
 
@@ -613,6 +606,14 @@ export function SessionPage() {
   const lookupFailed = needsRoundLookup && roundLookup && !resolvedKey
   const lookupError = (roundLookup as Record<string, unknown>)?.error as string | undefined
   const sessionKey = directSessionKey ?? resolvedKey
+
+  const { data: downloadedData } = useQuery({
+    queryKey: ['sessionDownloaded', sessionKey],
+    queryFn: () => api.getSessionDownloaded(sessionKey!),
+    enabled: !!sessionKey,
+    staleTime: 60 * 1000,
+  })
+  const hudEnabled = searchParams.get('hud') === '1' || downloadedData?.downloaded === true
 
   // Live timing (skip while resolving round)
   const pendingLookup = needsRoundLookup && !roundLookup && !roundError
