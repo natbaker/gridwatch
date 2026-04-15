@@ -2,7 +2,7 @@
 
 An F1 dashboard with live timing, race results, standings, telemetry replay, and analytics. Built with React + FastAPI, deployable as a single Docker container.
 
-![Dashboard](cockpit-hud-playing.png)
+![Dashboard](docs/screenshot-dashboard.png)
 
 ## Features
 
