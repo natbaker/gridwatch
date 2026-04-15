@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, Query
+from app.db import is_session_downloaded
 
 router = APIRouter(prefix="/api")
 
@@ -62,6 +63,11 @@ async def get_car_telemetry(
 ):
     facade = request.app.state.live_timing_facade
     return await facade.get_car_telemetry(session_key, driver_number, from_time, seconds)
+
+
+@router.get("/sessions/{session_key}/downloaded")
+async def get_session_downloaded(session_key: int):
+    return {"downloaded": is_session_downloaded(session_key)}
 
 
 @router.get("/sessions/{session_key}/lap-telemetry")

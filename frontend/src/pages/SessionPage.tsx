@@ -590,7 +590,13 @@ export function SessionPage() {
   const directSessionKey = searchParams.get('session') ? Number(searchParams.get('session')) : undefined
   const roundParam = roundPath ? Number(roundPath) : searchParams.get('round') ? Number(searchParams.get('round')) : undefined
   const seasonParam = searchParams.get('season') ? Number(searchParams.get('season')) : season
-  const hudEnabled = searchParams.get('hud') === '1'
+  const { data: downloadedData } = useQuery({
+    queryKey: ['sessionDownloaded', sessionKey],
+    queryFn: () => api.getSessionDownloaded(sessionKey!),
+    enabled: !!sessionKey,
+    staleTime: 60 * 1000,
+  })
+  const hudEnabled = searchParams.get('hud') === '1' || downloadedData?.downloaded === true
 
   const { data: scheduleData } = useNextSession()
 

@@ -61,4 +61,6 @@ export const api = {
     fetchJson<{ session_key: number | null }>(`/live-timing/session-key?year=${year}&round=${round}&session_type=${sessionType}`),
   getLapTelemetry: (sessionKey: number, driverNumber: number, lap = 'fastest') =>
     fetchJson<LapTelemetryResponse>(`/sessions/${sessionKey}/lap-telemetry?driver_number=${driverNumber}&lap=${lap}`),
+  getSessionDownloaded: (sessionKey: number) =>
+    fetchJson<{ downloaded: boolean }>(`/sessions/${sessionKey}/downloaded`),
 }
