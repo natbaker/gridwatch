@@ -643,10 +643,12 @@ export function SessionPage() {
     setDownloadStatus('loading')
     setDownloadProgress({ percent: 0, message: 'Starting...' })
     try {
-      await fetch(`/api/admin/download?session_key=${sessionKey}`, { method: 'POST' })
+      const adminToken = localStorage.getItem('admin_token') ?? ''
+      const adminHeaders = { Authorization: `Bearer ${adminToken}` }
+      await fetch(`/api/admin/download?session_key=${sessionKey}`, { method: 'POST', headers: adminHeaders })
       downloadPollRef.current = setInterval(async () => {
         try {
-          const resp = await fetch(`/api/admin/download-status?session_key=${sessionKey}`)
+          const resp = await fetch(`/api/admin/download-status?session_key=${sessionKey}`, { headers: adminHeaders })
           const data = await resp.json()
           if (data.status === 'done') {
             clearInterval(downloadPollRef.current!)

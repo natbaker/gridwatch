@@ -45,6 +45,8 @@ function formatDate(iso: string): string {
 const YEARS = [2025, 2024, 2023]
 
 export function AdminPage() {
+  const [token, setToken] = useState(() => localStorage.getItem('admin_token') ?? '')
+  const [tokenInput, setTokenInput] = useState('')
   const [available, setAvailable] = useState<AvailableSession[]>([])
   const [downloaded, setDownloaded] = useState<DownloadedSession[]>([])
   const [loadingAvailable, setLoadingAvailable] = useState(true)
@@ -54,24 +56,37 @@ export function AdminPage() {
   const [deleting, setDeleting] = useState<number | null>(null)
   const [typeFilter, setTypeFilter] = useState<string>('all')
 
+  const adminFetch = useCallback((url: string, init?: RequestInit) => {
+    return fetch(url, {
+      ...init,
+      headers: { ...init?.headers, Authorization: `Bearer ${token}` },
+    })
+  }, [token])
+
+  const saveToken = () => {
+    localStorage.setItem('admin_token', tokenInput)
+    setToken(tokenInput)
+    setTokenInput('')
+  }
+
   const fetchDownloaded = useCallback(async () => {
     try {
-      const resp = await fetch('/api/admin/sessions')
+      const resp = await adminFetch('/api/admin/sessions')
       const data = await resp.json()
       setDownloaded(data.sessions ?? [])
     } catch { /* ignore */ }
     setLoadingDownloaded(false)
-  }, [])
+  }, [adminFetch])
 
   const fetchAvailable = useCallback(async (y: number) => {
     setLoadingAvailable(true)
     try {
-      const resp = await fetch(`/api/admin/available-sessions?year=${y}`)
+      const resp = await adminFetch(`/api/admin/available-sessions?year=${y}`)
       const data = await resp.json()
       setAvailable(data.sessions ?? [])
     } catch { /* ignore */ }
     setLoadingAvailable(false)
-  }, [])
+  }, [adminFetch])
 
   useEffect(() => { fetchDownloaded() }, [fetchDownloaded])
   useEffect(() => { fetchAvailable(year) }, [year, fetchAvailable])
@@ -87,7 +102,7 @@ export function AdminPage() {
     const interval = setInterval(async () => {
       for (const sk of activeKeys) {
         try {
-          const resp = await fetch(`/api/admin/download-status?session_key=${sk}`)
+          const resp = await adminFetch(`/api/admin/download-status?session_key=${sk}`)
           const status: DownloadStatus = await resp.json()
           setStatuses(prev => ({ ...prev, [sk]: status }))
           if (status.status === 'done' || status.status === 'error') {
@@ -98,12 +113,12 @@ export function AdminPage() {
       }
     }, 2000)
     return () => clearInterval(interval)
-  }, [activeKeys.join(','), fetchDownloaded, fetchAvailable, year])
+  }, [activeKeys.join(','), fetchDownloaded, fetchAvailable, year, adminFetch])
 
   const startDownload = async (sessionKey: number) => {
     setStatuses(prev => ({ ...prev, [sessionKey]: { status: 'queued', message: 'Queued', percent: 0 } }))
     try {
-      const resp = await fetch(`/api/admin/download?session_key=${sessionKey}`, { method: 'POST' })
+      const resp = await adminFetch(`/api/admin/download?session_key=${sessionKey}`, { method: 'POST' })
       if (!resp.ok) {
         const err = await resp.json()
         setStatuses(prev => ({ ...prev, [sessionKey]: { status: 'error', message: err.error ?? 'Failed', percent: 0 } }))
@@ -116,7 +131,7 @@ export function AdminPage() {
   const deleteSession = async (key: number) => {
     setDeleting(key)
     try {
-      await fetch(`/api/admin/sessions?session_key=${key}`, { method: 'DELETE' })
+      await adminFetch(`/api/admin/sessions?session_key=${key}`, { method: 'DELETE' })
       fetchDownloaded()
       fetchAvailable(year)
     } catch { /* ignore */ }
@@ -133,11 +148,43 @@ export function AdminPage() {
 
   return (
     <div className="max-w-[960px] mx-auto px-5 py-6 space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold">Session Data Manager</h1>
-        <p className="text-sm text-text-secondary mt-1">
-          Download OpenF1 telemetry, positions, and radio for offline replay
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold">Session Data Manager</h1>
+          <p className="text-sm text-text-secondary mt-1">
+            Download OpenF1 telemetry, positions, and radio for offline replay
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {token ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-green-400 font-mono">token set</span>
+              <button
+                onClick={() => { localStorage.removeItem('admin_token'); setToken('') }}
+                className="text-xs text-text-tertiary hover:text-red-400 transition-colors"
+              >
+                clear
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={e => { e.preventDefault(); saveToken() }} className="flex items-center gap-2">
+              <input
+                type="password"
+                value={tokenInput}
+                onChange={e => setTokenInput(e.target.value)}
+                placeholder="Admin token"
+                className="text-xs bg-bg-elevated border border-border-primary rounded-md px-3 py-1.5 text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent w-36"
+              />
+              <button
+                type="submit"
+                disabled={!tokenInput}
+                className="text-xs font-semibold px-3 py-1.5 rounded-md bg-accent hover:bg-accent/80 text-black disabled:opacity-40 transition-colors"
+              >
+                Save
+              </button>
+            </form>
+          )}
+        </div>
       </div>
 
       {/* Download progress (shown when active or queued) */}

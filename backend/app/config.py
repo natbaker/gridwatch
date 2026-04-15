@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     openf1_base_url: str = "https://api.openf1.org/v1"
     openmeteo_base_url: str = "https://api.open-meteo.com"
 
+    admin_token: str = ""
+
     cache_ttl_schedule: int = 3600
     cache_ttl_next_session: int = 60
     cache_ttl_standings: int = 1800
