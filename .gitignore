@@ -1,0 +1,23 @@
+# Claude Code / tooling
+.superpowers/
+.claude/
+.playwright-mcp/
+docs/superpowers/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+venv/
+.venv/
+.pytest_cache/
+
+# Frontend
+node_modules/
+frontend/dist/
+*.local.json
+
+# Misc
+test.txt

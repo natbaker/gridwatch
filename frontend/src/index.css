@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #0D0D0F;
+  --color-bg-card: #161619;
+  --color-bg-card-hover: #1C1C20;
+  --color-bg-elevated: #1E1E23;
+  --color-accent: #C8102E;
+  --color-accent-muted: #9B0D23;
+  --color-text-primary: #E8E8EC;
+  --color-text-secondary: #8A8A96;
+  --color-text-tertiary: #5A5A66;
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-border: #2A2A30;
+  --color-border-active: #3A3A42;
+  --font-display: "Chakra Petch", sans-serif;
+  --font-body: "IBM Plex Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-bg-primary text-text-primary font-body antialiased;
+    margin: 0;
+  }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+@utility animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out both;
+}

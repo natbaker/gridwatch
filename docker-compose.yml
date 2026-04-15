@@ -1,0 +1,12 @@
+services:
+  gridwatch:
+    build: .
+    ports:
+      - "8001:8000"
+    environment:
+      - GRIDWATCH_LOG_LEVEL=info
+    volumes:
+      - f1-data:/data
+
+volumes:
+  f1-data:
