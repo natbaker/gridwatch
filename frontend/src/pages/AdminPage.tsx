@@ -42,7 +42,7 @@ function formatDate(iso: string): string {
   }
 }
 
-const YEARS = [2025, 2024, 2023]
+const YEARS = [2026, 2025, 2024, 2023]
 
 export function AdminPage() {
   const [token, setToken] = useState(() => localStorage.getItem('admin_token') ?? '')
@@ -51,7 +51,8 @@ export function AdminPage() {
   const [downloaded, setDownloaded] = useState<DownloadedSession[]>([])
   const [loadingAvailable, setLoadingAvailable] = useState(true)
   const [loadingDownloaded, setLoadingDownloaded] = useState(true)
-  const [year, setYear] = useState(2024)
+  const [availableError, setAvailableError] = useState<string | null>(null)
+  const [year, setYear] = useState(2025)
   const [statuses, setStatuses] = useState<Record<number, DownloadStatus>>({})
   const [deleting, setDeleting] = useState<number | null>(null)
   const [typeFilter, setTypeFilter] = useState<string>('all')
@@ -80,11 +81,22 @@ export function AdminPage() {
 
   const fetchAvailable = useCallback(async (y: number) => {
     setLoadingAvailable(true)
+    setAvailableError(null)
     try {
       const resp = await adminFetch(`/api/admin/available-sessions?year=${y}`)
       const data = await resp.json()
-      setAvailable(data.sessions ?? [])
-    } catch { /* ignore */ }
+      if (!resp.ok) {
+        setAvailableError(data.detail ?? `Error ${resp.status}`)
+        setAvailable([])
+      } else if (data.error) {
+        setAvailableError(data.error)
+        setAvailable(data.sessions ?? [])
+      } else {
+        setAvailable(data.sessions ?? [])
+      }
+    } catch (e) {
+      setAvailableError(String(e))
+    }
     setLoadingAvailable(false)
   }, [adminFetch])
 
@@ -260,6 +272,10 @@ export function AdminPage() {
 
         {loadingAvailable ? (
           <div className="p-8 text-center text-text-tertiary text-sm">Loading sessions...</div>
+        ) : availableError ? (
+          <div className="p-8 text-center text-sm">
+            <span className="text-red-400 font-mono">{availableError}</span>
+          </div>
         ) : available.length === 0 ? (
           <div className="p-8 text-center text-text-tertiary text-sm">No sessions found for {year}</div>
         ) : (
