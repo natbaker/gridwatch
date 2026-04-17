@@ -6,7 +6,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path("/data/f1.db")
+from app.config import settings
+DB_PATH = Path(settings.db_path)
 
 
 def get_connection() -> sqlite3.Connection:

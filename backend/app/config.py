@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     openmeteo_base_url: str = "https://api.open-meteo.com"
 
     admin_token: str = ""
+    db_path: str = "/data/f1.db"
 
     cache_ttl_schedule: int = 3600
     cache_ttl_next_session: int = 60

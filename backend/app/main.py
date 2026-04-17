@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import asyncio
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
@@ -33,7 +34,7 @@ async def lifespan(app: FastAPI):
         httpx.AsyncClient(base_url=settings.jolpica_base_url, timeout=10.0, follow_redirects=True),
         asyncio.Semaphore(4),
     )
-    openf1_cache = ResponseCache()
+    openf1_cache = ResponseCache(db_path=str(Path(settings.db_path).parent / "openf1_cache.db"))
     openf1_client = OpenF1Client(
         httpx.AsyncClient(base_url=settings.openf1_base_url, timeout=30.0),
         cache=openf1_cache,
@@ -84,7 +85,6 @@ app.include_router(analytics.router)
 app.include_router(admin.router)
 
 import logging as _logging
-from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
