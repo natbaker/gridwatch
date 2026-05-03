@@ -12,6 +12,7 @@ export function SessionSchedule() {
   if (!data?.weekend_sessions?.length) return null
 
   const sessions = data.weekend_sessions
+  const round = data.race.round
   const firstDate = new Date(sessions[0].start_utc)
   const lastDate = new Date(sessions[sessions.length - 1].start_utc)
   const month = firstDate.toLocaleDateString('en-US', { month: 'short' })
@@ -27,7 +28,9 @@ export function SessionSchedule() {
           const hasReplay = !!s.session_key
           const isLive = s.status === 'live'
           const clickable = hasReplay || isLive
-          const to = isLive ? '/live' : `/live?session=${s.session_key}`
+          const to = isLive ? '/live' : s.session_key
+            ? `/race/${round}?session=${s.session_key}`
+            : `/race/${round}`
 
           const inner = (
             <div
