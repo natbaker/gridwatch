@@ -27,7 +27,7 @@ export function SessionSchedule() {
         {data.weekend_sessions.map((s) => {
           const hasReplay = !!s.session_key
           const isLive = s.status === 'live'
-          const clickable = hasReplay || isLive
+          const isUpcoming = s.status === 'upcoming'
           const to = isLive ? '/live' : s.session_key
             ? `/race/${round}?session=${s.session_key}`
             : `/race/${round}`
@@ -35,8 +35,8 @@ export function SessionSchedule() {
           const inner = (
             <div
               key={s.short_name}
-              className={`flex items-center justify-between py-2 px-3 rounded-lg transition-colors ${
-                hasReplay || isLive ? 'hover:bg-bg-elevated/50 cursor-pointer' : 'opacity-70'
+              className={`flex items-center justify-between py-2 px-3 rounded-lg transition-colors hover:bg-bg-elevated/50 cursor-pointer ${
+                isUpcoming ? 'opacity-70' : ''
               }`}
             >
               <div className="flex items-center gap-3">
@@ -60,7 +60,7 @@ export function SessionSchedule() {
             </div>
           )
 
-          return clickable ? <Link key={s.short_name} to={to}>{inner}</Link> : inner
+          return <Link key={s.short_name} to={to}>{inner}</Link>
         })}
       </div>
     </div>
