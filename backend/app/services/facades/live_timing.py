@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import math
 from collections import defaultdict
@@ -7,6 +8,10 @@ import httpx
 
 from app.cache import TTLCache
 from app.db import is_session_downloaded, get_session_data_start, get_downloaded_session_info, get_car_data, get_radio_events, get_locations
+from app.services.circuit_geometry import (
+    SVG_WIDTH, SVG_HEIGHT, SVG_PADDING,
+    CIRCUIT_KEYS, gps_to_svg, build_bounds_from_circuit_info,
+)
 from app.services.clients.openf1 import OpenF1Client
 from app.services.facades.standings import TEAM_COLORS
 
@@ -28,21 +33,6 @@ TIRE_SHORT = {
     "WET": "W",
 }
 
-
-SVG_WIDTH = 400
-SVG_HEIGHT = 300
-SVG_PADDING = 20
-
-
-def _gps_to_svg(x: float, y: float, bounds: dict) -> tuple[float, float]:
-    """Convert raw GPS coordinate to SVG space, applying rotation if present."""
-    if "rot_cx" in bounds:
-        dx, dy = x - bounds["rot_cx"], y - bounds["rot_cy"]
-        x = bounds["rot_cx"] + dx * bounds["rot_cos"] - dy * bounds["rot_sin"]
-        y = bounds["rot_cy"] + dx * bounds["rot_sin"] + dy * bounds["rot_cos"]
-    sx = round(bounds["offset_x"] + (x - bounds["min_x"]) * bounds["scale"], 1)
-    sy = round(bounds["offset_y"] + (y - bounds["min_y"]) * bounds["scale"], 1)
-    return sx, sy
 
 
 class LiveTimingFacade:
@@ -179,44 +169,31 @@ class LiveTimingFacade:
             except Exception as e:
                 logger.warning(f"Session info fetch failed: {e}")
 
-        # Fetch all data in parallel-ish (sequential for simplicity, could use asyncio.gather)
-        drivers_raw = []
-        positions_raw = []
-        intervals_raw = []
-        laps_raw = []
-        stints_raw = []
-        pit_raw = []
+        # Fetch all data in parallel using asyncio.gather
+        async def _safe_fetch(coro, warning_msg: str | None = None):
+            try:
+                return await coro
+            except Exception as e:
+                logger.warning(f"Fetch failed: {e}")
+                if warning_msg:
+                    warnings.append(warning_msg)
+                return []
 
-        try:
-            drivers_raw = await self._openf1.get_drivers(session_key)
-        except Exception as e:
-            logger.warning(f"Drivers fetch failed: {e}")
-            warnings.append("Driver data unavailable")
-
-        try:
-            positions_raw = await self._openf1.get_positions(session_key)
-        except Exception as e:
-            logger.warning(f"Positions fetch failed: {e}")
-
-        try:
-            intervals_raw = await self._openf1.get_intervals(session_key)
-        except Exception as e:
-            logger.warning(f"Intervals fetch failed: {e}")
-
-        try:
-            laps_raw = await self._openf1.get_laps(session_key)
-        except Exception as e:
-            logger.warning(f"Laps fetch failed: {e}")
-
-        try:
-            stints_raw = await self._openf1.get_stints(session_key)
-        except Exception as e:
-            logger.warning(f"Stints fetch failed: {e}")
-
-        try:
-            pit_raw = await self._openf1.get_pit_stops(session_key)
-        except Exception as e:
-            logger.warning(f"Pit stops fetch failed: {e}")
+        (
+            drivers_raw,
+            positions_raw,
+            intervals_raw,
+            laps_raw,
+            stints_raw,
+            pit_raw,
+        ) = await asyncio.gather(
+            _safe_fetch(self._openf1.get_drivers(session_key), "Driver data unavailable"),
+            _safe_fetch(self._openf1.get_positions(session_key)),
+            _safe_fetch(self._openf1.get_intervals(session_key)),
+            _safe_fetch(self._openf1.get_laps(session_key)),
+            _safe_fetch(self._openf1.get_stints(session_key)),
+            _safe_fetch(self._openf1.get_pit_stops(session_key)),
+        )
 
         if not drivers_raw and not positions_raw:
             stale = self._cache.get_stale(cache_key)
@@ -399,17 +376,6 @@ class LiveTimingFacade:
         self._cache.set(cache_key, result, ttl)
         return result
 
-    # OpenF1 circuit_short_name → circuit_key mapping
-    CIRCUIT_KEYS: dict[str, int] = {
-        "Albert Park": 1, "Shanghai": 2, "Suzuka": 46, "Sakhir": 3,
-        "Jeddah": 61, "Miami": 77, "Montreal": 7, "Monaco": 6,
-        "Barcelona": 4, "Spielberg": 14, "Silverstone": 9,
-        "Spa-Francorchamps": 13, "Budapest": 11, "Zandvoort": 63,
-        "Monza": 18, "Baku": 56, "Singapore": 23, "Austin": 69,
-        "Mexico City": 32, "São Paulo": 21, "Las Vegas": 79,
-        "Lusail": 78, "Yas Island": 24, "Madrid": 80,
-    }
-
     async def _fetch_circuit_info(self, session_key: int, circuit_name: str | None = None) -> dict | None:
         """Fetch circuit geometry from the Multiviewer API via circuit_info_url."""
         cache_key = f"circuit_info_{session_key}"
@@ -439,7 +405,7 @@ class LiveTimingFacade:
 
         # Fallback: try Multiviewer directly with circuit_key from mapping
         if not url and circuit_name:
-            for name, key in self.CIRCUIT_KEYS.items():
+            for name, key in CIRCUIT_KEYS.items():
                 if name.lower() in circuit_name.lower() or circuit_name.lower() in name.lower():
                     circuit_key = key
                     break
@@ -510,95 +476,12 @@ class LiveTimingFacade:
         # Try Multiviewer circuit data first (precise official track geometry)
         circuit_info = await self._fetch_circuit_info(session_key, circuit_name)
         if circuit_info and circuit_info.get("x") and circuit_info.get("y"):
-            return self._build_bounds_from_circuit_info(circuit_info, start, end, bounds_key)
+            return build_bounds_from_circuit_info(circuit_info, start, end, bounds_key, self._cache)
 
         # Fallback: sample GPS data from mid-session
         if session:
             return await self._build_bounds_from_gps(session_key, session, start, end, bounds_key)
         return None
-
-    def _build_bounds_from_circuit_info(self, info: dict, start: datetime, end: datetime, bounds_key: str) -> dict:
-        """Build track bounds from Multiviewer circuit geometry."""
-        raw_x = info["x"]
-        raw_y = info["y"]
-        rotation = info.get("rotation", 0)
-
-        # Apply rotation around centroid
-        cx = sum(raw_x) / len(raw_x)
-        cy = sum(raw_y) / len(raw_y)
-        rad = math.radians(rotation)
-        cos_r, sin_r = math.cos(rad), math.sin(rad)
-
-        pts = []
-        for x, y in zip(raw_x, raw_y):
-            dx, dy = x - cx, y - cy
-            rx = cx + dx * cos_r - dy * sin_r
-            ry = cy + dx * sin_r + dy * cos_r
-            pts.append((rx, ry))
-
-        all_x = [p[0] for p in pts]
-        all_y = [p[1] for p in pts]
-        min_x, max_x = min(all_x), max(all_x)
-        min_y, max_y = min(all_y), max(all_y)
-        range_x = max_x - min_x or 1
-        range_y = max_y - min_y or 1
-
-        usable_w = SVG_WIDTH - 2 * SVG_PADDING
-        usable_h = SVG_HEIGHT - 2 * SVG_PADDING
-        scale = min(usable_w / range_x, usable_h / range_y)
-        off_x = SVG_PADDING + (usable_w - range_x * scale) / 2
-        off_y = SVG_PADDING + (usable_h - range_y * scale) / 2
-
-        # Convert to SVG coordinates — path already starts at S/F line
-        svg_pts = []
-        for rx, ry in pts:
-            sx = round(off_x + (rx - min_x) * scale, 1)
-            sy = round(off_y + (ry - min_y) * scale, 1)
-            svg_pts.append((sx, sy))
-
-        parts = [f"{'M' if i == 0 else 'L'}{sx},{sy}" for i, (sx, sy) in enumerate(svg_pts)]
-        parts.append("Z")
-        track_path = " ".join(parts)
-
-        # Build mini-sector SVG index mapping from miniSectorsIndexes
-        # These are indices into the x/y arrays where each sector boundary falls
-        sector_indices = info.get("miniSectorsIndexes", [])
-
-        # Marshal sectors give us the 3 timing sector boundaries
-        marshal_sectors = info.get("marshalSectors", [])
-
-        # Corners for potential overlay
-        corners = info.get("corners", [])
-        corner_svgs = []
-        for c in corners:
-            tp = c.get("trackPosition", {})
-            cx_raw, cy_raw = tp.get("x", 0), tp.get("y", 0)
-            dx, dy = cx_raw - (sum(raw_x) / len(raw_x)), cy_raw - (sum(raw_y) / len(raw_y))
-            rx = (sum(raw_x) / len(raw_x)) + dx * cos_r - dy * sin_r
-            ry = (sum(raw_y) / len(raw_y)) + dx * sin_r + dy * cos_r
-            corner_svgs.append({
-                "number": c.get("number"),
-                "x": round(off_x + (rx - min_x) * scale, 1),
-                "y": round(off_y + (ry - min_y) * scale, 1),
-            })
-
-        bounds = {
-            "min_x": min_x, "max_x": max_x,
-            "min_y": min_y, "max_y": max_y,
-            "session_start": start.isoformat(),
-            "session_end": end.isoformat(),
-            "track_path": track_path,
-            "scale": scale,
-            "offset_x": off_x,
-            "offset_y": off_y,
-            # Rotation params so car GPS coords get the same transform
-            "rot_cx": cx, "rot_cy": cy,
-            "rot_cos": cos_r, "rot_sin": sin_r,
-            "sector_indices": sector_indices,
-            "corners": corner_svgs,
-        }
-        self._cache.set(bounds_key, bounds, 3600)
-        return bounds
 
     async def _build_bounds_from_gps(self, session_key: int, session: dict,
                                       start: datetime, end: datetime, bounds_key: str) -> dict | None:
@@ -776,7 +659,7 @@ class LiveTimingFacade:
 
         cars = []
         for num, entry in latest.items():
-            svg_x, svg_y = _gps_to_svg(entry["x"], entry["y"], bounds)
+            svg_x, svg_y = gps_to_svg(entry["x"], entry["y"], bounds)
             info = driver_info.get(num, {"abbreviation": str(num), "team_color": "#888"})
             cars.append({
                 "driver_number": num,
@@ -844,11 +727,29 @@ class LiveTimingFacade:
 
         start_dt = datetime.fromisoformat(data_start)
 
-        # Fetch position changes (sparse — ~25 per driver, only on position changes)
-        try:
-            positions_raw = await self._openf1.get_positions(session_key)
-        except Exception:
-            positions_raw = []
+        # Fetch all replay data in parallel
+        async def _safe(coro):
+            try:
+                return await coro
+            except Exception as e:
+                logger.warning(f"Fetch failed: {e}")
+                return []
+
+        (
+            positions_raw,
+            intervals_raw,
+            rc_raw,
+            laps_raw,
+            weather_raw,
+            pits_raw,
+        ) = await asyncio.gather(
+            _safe(self._openf1.get_positions(session_key)),
+            _safe(self._openf1.get_intervals(session_key)),
+            _safe(self._openf1.get_race_control(session_key)),
+            _safe(self._openf1.get_laps(session_key)),
+            _safe(self._openf1.get_weather(session_key)),
+            _safe(self._openf1.get_pit_stops(session_key)),
+        )
 
         position_events = []
         for p in positions_raw:
@@ -859,12 +760,6 @@ class LiveTimingFacade:
                 t = (datetime.fromisoformat(date) - start_dt).total_seconds()
                 if t >= 0:
                     position_events.append({"t": round(t, 1), "n": num, "p": pos})
-
-        # Fetch interval data (more frequent, ~900 per driver)
-        try:
-            intervals_raw = await self._openf1.get_intervals(session_key)
-        except Exception:
-            intervals_raw = []
 
         # Downsample intervals — keep one per driver per ~5 seconds
         interval_events = []
@@ -890,12 +785,6 @@ class LiveTimingFacade:
                 "i": round(interval, 3) if isinstance(interval, (int, float)) else None,
             })
 
-        # Fetch race control messages (flags, safety car, etc.)
-        try:
-            rc_raw = await self._openf1.get_race_control(session_key)
-        except Exception:
-            rc_raw = []
-
         race_control = []
         for rc in rc_raw:
             date = rc.get("date")
@@ -916,12 +805,6 @@ class LiveTimingFacade:
                 if rc.get("sector") is not None:
                     rc_event["sector"] = rc["sector"]
                 race_control.append(rc_event)
-
-        # Fetch lap completions for the leader to track current lap
-        try:
-            laps_raw = await self._openf1.get_laps(session_key)
-        except Exception:
-            laps_raw = []
 
         # Find leader's laps (driver in P1 at start, or just driver with most laps)
         # Use the first position event's leader, or take all laps from all drivers
@@ -951,12 +834,6 @@ class LiveTimingFacade:
                 mini_sectors = [len(s1), len(s2), len(s3)]
                 break
 
-        # Fetch trackside weather data
-        try:
-            weather_raw = await self._openf1.get_weather(session_key)
-        except Exception:
-            weather_raw = []
-
         weather_events = []
         for w in weather_raw:
             date = w.get("date")
@@ -983,12 +860,6 @@ class LiveTimingFacade:
                     sampled.append(w)
                     last_t = w["t"]
             weather_events = sampled
-
-        # Fetch pit stop events with timestamps
-        try:
-            pits_raw = await self._openf1.get_pit_stops(session_key)
-        except Exception:
-            pits_raw = []
 
         # Group consecutive lap entries per driver before building pit events
         _pit_by_driver: dict[int, list[dict]] = {}
@@ -1092,7 +963,7 @@ class LiveTimingFacade:
                 x, y = row["x"], row["y"]
                 if x == 0 and y == 0:
                     continue
-                svg_x, svg_y = _gps_to_svg(x, y, bounds)
+                svg_x, svg_y = gps_to_svg(x, y, bounds)
                 positions.append({
                     "t": round(row["t"] - t_start, 2),
                     "n": row["driver_number"],
@@ -1138,7 +1009,7 @@ class LiveTimingFacade:
                 continue
 
             t = (datetime.fromisoformat(date) - from_dt).total_seconds()
-            svg_x, svg_y = _gps_to_svg(x, y, bounds)
+            svg_x, svg_y = gps_to_svg(x, y, bounds)
             positions.append({
                 "t": round(t, 2),
                 "n": num,
