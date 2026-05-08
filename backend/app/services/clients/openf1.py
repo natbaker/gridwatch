@@ -79,9 +79,6 @@ class OpenF1Client:
     async def get_meetings_by_key(self, meeting_key: int) -> list[dict]:
         return await self._get("/meetings", params={"meeting_key": str(meeting_key)})
 
-    async def get_session_results(self, session_key: int) -> list[dict]:
-        return await self._get("/drivers", params={"session_key": str(session_key)})
-
     async def get_positions(self, session_key: int) -> list[dict]:
         return await self._get("/position", params={"session_key": str(session_key)})
 

@@ -63,6 +63,7 @@ async def lifespan(app: FastAPI):
     await app.state.jolpica._http.aclose()
     await app.state.openf1._http.aclose()
     await app.state.openmeteo._http.aclose()
+    app.state.openf1._cache.close()
 
 
 app = FastAPI(title="Grid Watch API", version=settings.app_version, lifespan=lifespan)

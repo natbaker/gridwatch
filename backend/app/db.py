@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 from app.config import settings
 DB_PATH = Path(settings.db_path)
 
+_SESSION_TABLES = ("car_data", "team_radio", "locations", "downloaded_sessions")
+
 
 def get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -150,7 +152,7 @@ def get_session_stats(session_key: int) -> dict:
 
 def delete_session_data(session_key: int) -> None:
     conn = get_connection()
-    for table in ("car_data", "team_radio", "locations", "downloaded_sessions"):
+    for table in _SESSION_TABLES:
         conn.execute(f"DELETE FROM {table} WHERE session_key = ?", (session_key,))
     conn.commit()
     conn.close()

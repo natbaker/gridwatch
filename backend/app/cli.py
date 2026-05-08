@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from app.db import get_connection, init_db, is_session_downloaded
+from app.db import get_connection, init_db, is_session_downloaded, _SESSION_TABLES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ async def download_session(session_key: int, force: bool = False, on_progress=No
 
         # Clear old data if re-downloading
         if force:
-            for table in ("car_data", "team_radio", "locations", "downloaded_sessions"):
+            for table in _SESSION_TABLES:
                 conn.execute(f"DELETE FROM {table} WHERE session_key = ?", (session_key,))
             conn.commit()
 

@@ -10,7 +10,6 @@ export function formatLapTime(seconds: number | null): string {
 
 export function formatGap(gap: number | null): string {
   if (gap === null || gap === undefined) return '—'
-  if (typeof gap === 'string') return gap as string
   if (gap === 0) return 'LEADER'
   return `+${gap.toFixed(3)}`
 }

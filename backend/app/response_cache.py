@@ -84,6 +84,11 @@ class ResponseCache:
         except Exception as e:
             logger.warning(f"Cache write error: {e}")
 
+    def close(self) -> None:
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+
     def stats(self) -> dict:
         if not self._conn:
             return {"total": 0, "permanent": 0, "db_path": self._db_path}

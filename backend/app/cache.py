@@ -23,6 +23,8 @@ class TTLCache:
 
     def set(self, key: str, value: Any, ttl: float) -> None:
         self._store[key] = (value, time.monotonic() + ttl)
+        now = time.monotonic()
+        self._store = {k: v for k, v in self._store.items() if v[1] > now}
 
     def invalidate(self, key: str) -> None:
         self._store.pop(key, None)
