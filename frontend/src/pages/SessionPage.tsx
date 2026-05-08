@@ -79,8 +79,8 @@ export function SessionPage() {
 
   // Qualifying session key (for lap comparison on qualifying tab)
   const { data: qualiKeyData } = useQuery({
-    queryKey: ['sessionKeyLookup', seasonParam, roundParam, 'Qualifying'],
-    queryFn: () => api.getSessionKey(seasonParam!, roundParam!, 'Qualifying'),
+    queryKey: ['sessionKeyLookup', seasonParam, roundParam, raceDateParam, 'Qualifying'],
+    queryFn: () => api.getSessionKey(seasonParam!, roundParam!, 'Qualifying', raceDateParam),
     enabled: !!roundParam && !!seasonParam,
     retry: 1,
   })
@@ -97,6 +97,16 @@ export function SessionPage() {
 
   useEffect(() => () => { if (downloadPollRef.current) clearInterval(downloadPollRef.current) }, [])
 
+  // Reset download state when the session changes
+  useEffect(() => {
+    if (downloadPollRef.current) {
+      clearInterval(downloadPollRef.current)
+      downloadPollRef.current = null
+    }
+    setDownloadStatus('idle')
+    setDownloadProgress({ percent: 0, message: '' })
+  }, [sessionKey])
+
   const startSessionDownload = async (sessionKey: number) => {
     if (downloadStatus === 'loading') return
     setDownloadStatus('loading')
@@ -105,9 +115,15 @@ export function SessionPage() {
       const adminToken = localStorage.getItem('admin_token') ?? ''
       const adminHeaders = { Authorization: `Bearer ${adminToken}` }
       await fetch(`/api/admin/download?session_key=${sessionKey}`, { method: 'POST', headers: adminHeaders })
-      downloadPollRef.current = setInterval(async () => {
+      const handleStatus = async () => {
         try {
           const resp = await fetch(`/api/admin/download-status?session_key=${sessionKey}`, { headers: adminHeaders })
+          if (!resp.ok) {
+            clearInterval(downloadPollRef.current!)
+            downloadPollRef.current = null
+            setDownloadStatus('error')
+            return
+          }
           const data = await resp.json()
           if (data.status === 'done') {
             clearInterval(downloadPollRef.current!)
@@ -123,8 +139,9 @@ export function SessionPage() {
           } else {
             setDownloadProgress({ percent: data.percent ?? 0, message: data.message ?? '' })
           }
-        } catch { /* ignore poll errors */ }
-      }, 3000)
+        } catch { /* ignore transient network errors */ }
+      }
+      downloadPollRef.current = setInterval(handleStatus, 1000)
     } catch {
       setDownloadStatus('error')
     }

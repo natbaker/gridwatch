@@ -57,7 +57,7 @@ class LiveTimingFacade:
 
     async def get_session_key_for_round(self, year: int, round_num: int, session_type: str = "Race", race_date: str | None = None) -> dict:
         """Look up session key by year, round number, and session type."""
-        cache_key = f"session_key_{year}_{round_num}_{session_type}"
+        cache_key = f"session_key_{year}_{round_num}_{session_type}_{race_date or ''}"
         cached = self._cache.get(cache_key)
         if cached:
             return cached
