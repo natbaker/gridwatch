@@ -21,11 +21,11 @@ export function Header({ trackTimezone, trackCity }: HeaderProps) {
   return (
     <header className="border-b border-border">
       <div className="max-w-[1280px] mx-auto px-5 h-24 flex items-center justify-between">
-        <Link to="/" className="flex items-center">
-          <img src="/gridwatch_logo_nav_transparent.png" alt="Grid Watch" className="w-24 h-auto" />
+        <Link to="/" className="flex items-center shrink-0">
+          <img src="/gridwatch_logo_nav_transparent.png" alt="Grid Watch" className="w-16 sm:w-24 h-auto" />
         </Link>
 
-        <nav className="flex gap-6 text-sm">
+        <nav className="flex gap-3 sm:gap-6 text-xs sm:text-sm">
           <NavLink
             to="/"
             className={({ isActive }) =>
