@@ -58,10 +58,11 @@ class LiveTimingFacade:
 
             if race_date:
                 # Match by date proximity to avoid index misalignment from cancelled races
-                target = datetime.fromisoformat(race_date)
+                from datetime import date as date_type
+                target = date_type.fromisoformat(race_date[:10])
                 meeting = min(
                     race_meetings,
-                    key=lambda m: abs((datetime.fromisoformat(m["date_start"][:10]) - target).days),
+                    key=lambda m: abs((date_type.fromisoformat(m["date_start"][:10]) - target).days),
                 )
             else:
                 if round_num < 1 or round_num > len(race_meetings):
