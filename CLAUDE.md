@@ -12,7 +12,7 @@ cd backend && uv run uvicorn app.main:app --reload --port 8000
 cd frontend && npm run dev
 
 # Tests
-cd backend && uv run pytest
+cd backend && uv run --extra dev python -m pytest
 
 # Docker
 docker compose up
@@ -45,6 +45,7 @@ Stack: React + Vite + TanStack Query + React Router + Tailwind
 **Data**
 - 2026 fallback schedule is hardcoded in `schedule.py` for when Jolpica data is unavailable
 - Production: frontend served as static files from `frontend/dist/` via FastAPI's SPA fallback
+- Jolpica renumbers rounds skipping cancelled races; OpenF1 includes cancelled meetings in its list. Never map Jolpica round → OpenF1 meeting by array index — match by date instead
 
 ## Code Conventions
 
