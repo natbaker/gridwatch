@@ -91,6 +91,7 @@ export function SessionPage() {
   const [compareDriverB, setCompareDriverB] = useState<number | null>(null)
   const [compareLapPreset, setCompareLapPreset] = useState<LapPreset>('fastest')
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [downloadError, setDownloadError] = useState<string>('')
   const [downloadProgress, setDownloadProgress] = useState<{ percent: number; message: string }>({ percent: 0, message: '' })
   const downloadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const queryClient = useQueryClient()
@@ -105,6 +106,7 @@ export function SessionPage() {
     }
     setDownloadStatus('idle')
     setDownloadProgress({ percent: 0, message: '' })
+    setDownloadError('')
   }, [sessionKey])
 
   const startSessionDownload = async (sessionKey: number) => {
@@ -114,13 +116,19 @@ export function SessionPage() {
     try {
       const adminToken = localStorage.getItem('admin_token') ?? ''
       const adminHeaders = { Authorization: `Bearer ${adminToken}` }
-      await fetch(`/api/admin/download?session_key=${sessionKey}`, { method: 'POST', headers: adminHeaders })
+      const postResp = await fetch(`/api/admin/download?session_key=${sessionKey}`, { method: 'POST', headers: adminHeaders })
+      if (!postResp.ok) {
+        setDownloadError(postResp.status === 401 ? 'Set admin token on the Admin page first' : 'Download failed')
+        setDownloadStatus('error')
+        return
+      }
       const handleStatus = async () => {
         try {
           const resp = await fetch(`/api/admin/download-status?session_key=${sessionKey}`, { headers: adminHeaders })
           if (!resp.ok) {
             clearInterval(downloadPollRef.current!)
             downloadPollRef.current = null
+            setDownloadError('Download failed')
             setDownloadStatus('error')
             return
           }
@@ -148,7 +156,11 @@ export function SessionPage() {
   }
 
   // Session key from timing data when no URL params (direct /live visit)
-  const effectiveSessionKey = sessionKey ?? timingData?.session?.session_key
+  // When navigating by round, sessionKey is the resolved key — don't fall back to stale
+  // timingData which may still reference the previous session during a session switch.
+  const effectiveSessionKey = (roundParam || directSessionKey)
+    ? sessionKey
+    : (sessionKey ?? timingData?.session?.session_key)
   const isLive = !!timingData?.session?.is_live
   const isHistorical = !!effectiveSessionKey && !!timingData?.session && !isLive
 
@@ -356,7 +368,7 @@ export function SessionPage() {
                 onClick={() => startSessionDownload(effectiveSessionKey)}
                 className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded text-[10px] font-mono text-accent transition-colors"
               >
-                {downloadStatus === 'error' ? 'DOWNLOAD FAILED — RETRY' : 'DOWNLOAD TO REPLAY ▶'}
+                {downloadStatus === 'error' ? (downloadError || 'DOWNLOAD FAILED — RETRY') : 'DOWNLOAD TO REPLAY ▶'}
               </button>
             </div>
           ) : (
@@ -501,7 +513,7 @@ export function SessionPage() {
                       onClick={() => startSessionDownload(compareSessionKey)}
                       className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded text-[10px] font-mono text-accent transition-colors"
                     >
-                      {downloadStatus === 'error' ? 'DOWNLOAD FAILED — RETRY' : 'DOWNLOAD SESSION DATA'}
+                      {downloadStatus === 'error' ? (downloadError || 'DOWNLOAD FAILED — RETRY') : 'DOWNLOAD SESSION DATA'}
                     </button>
                   ) : null}
                 </div>
