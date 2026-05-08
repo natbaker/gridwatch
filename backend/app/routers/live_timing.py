@@ -37,6 +37,17 @@ async def get_session_key_for_round(
     return result
 
 
+@router.get("/live-timing/round-sessions")
+async def get_round_sessions(
+    request: Request,
+    year: int = Query(...),
+    round: int = Query(...),
+    race_date: str | None = Query(None),
+):
+    facade = request.app.state.live_timing_facade
+    return await facade.get_round_sessions(year, round, race_date)
+
+
 @router.get("/live-timing/replay/info")
 async def get_replay_info(request: Request, session_key: int = Query(...)):
     facade = request.app.state.live_timing_facade

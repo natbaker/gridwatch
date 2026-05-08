@@ -41,6 +41,20 @@ class LiveTimingFacade:
         self._cache = cache
         self._http = http_client
 
+    async def _find_meeting(self, year: int, round_num: int, race_date: str | None) -> dict | None:
+        """Return the OpenF1 meeting for a given Jolpica round, matching by date when provided."""
+        meetings = await self._openf1.get_meetings(year)
+        race_meetings = [m for m in meetings if "test" not in m.get("meeting_name", "").lower()]
+        if not race_meetings:
+            return None
+        if race_date:
+            from datetime import date as date_type
+            target = date_type.fromisoformat(race_date[:10])
+            return min(race_meetings, key=lambda m: abs((date_type.fromisoformat(m["date_start"][:10]) - target).days))
+        if round_num < 1 or round_num > len(race_meetings):
+            return None
+        return race_meetings[round_num - 1]
+
     async def get_session_key_for_round(self, year: int, round_num: int, session_type: str = "Race", race_date: str | None = None) -> dict:
         """Look up session key by year, round number, and session type."""
         cache_key = f"session_key_{year}_{round_num}_{session_type}"
@@ -49,28 +63,11 @@ class LiveTimingFacade:
             return cached
 
         try:
-            meetings = await self._openf1.get_meetings(year)
-            # Filter out non-race meetings (e.g. pre-season testing)
-            race_meetings = [
-                m for m in meetings
-                if "test" not in m.get("meeting_name", "").lower()
-            ]
+            meeting = await self._find_meeting(year, round_num, race_date)
+            if not meeting:
+                return {"session_key": None, "error": "Round not found"}
 
-            if race_date:
-                # Match by date proximity to avoid index misalignment from cancelled races
-                from datetime import date as date_type
-                target = date_type.fromisoformat(race_date[:10])
-                meeting = min(
-                    race_meetings,
-                    key=lambda m: abs((date_type.fromisoformat(m["date_start"][:10]) - target).days),
-                )
-            else:
-                if round_num < 1 or round_num > len(race_meetings):
-                    return {"session_key": None, "error": "Round not found"}
-                meeting = race_meetings[round_num - 1]
-            meeting_key = meeting["meeting_key"]
-
-            sessions = await self._openf1.get_sessions(meeting_key=str(meeting_key))
+            sessions = await self._openf1.get_sessions(meeting_key=str(meeting["meeting_key"]))
             # Prefer session_name match (e.g. "Race") over session_type match
             # because Sprint has session_type="Race" but session_name="Sprint"
             match = None
@@ -87,6 +84,29 @@ class LiveTimingFacade:
         except Exception as e:
             logger.error(f"Failed to look up session key: {e}")
             return {"session_key": None, "error": str(e)}
+
+    async def get_round_sessions(self, year: int, round_num: int, race_date: str | None = None) -> dict:
+        """Return all sessions for a weekend so the UI can build a session switcher."""
+        cache_key = f"round_sessions_{year}_{round_num}"
+        cached = self._cache.get(cache_key)
+        if cached:
+            return cached
+        try:
+            meeting = await self._find_meeting(year, round_num, race_date)
+            if not meeting:
+                return {"sessions": []}
+            sessions = await self._openf1.get_sessions(meeting_key=str(meeting["meeting_key"]))
+            result = {
+                "sessions": [
+                    {"session_key": s["session_key"], "session_name": s["session_name"]}
+                    for s in sessions
+                ]
+            }
+            self._cache.set(cache_key, result, 3600)
+            return result
+        except Exception as e:
+            logger.error(f"Failed to fetch round sessions: {e}")
+            return {"sessions": []}
 
     async def get_live_session(self) -> dict | None:
         """Find the currently live or most recent session."""

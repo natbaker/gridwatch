@@ -26,20 +26,29 @@ import { NoSessionState } from '../components/session/NoSessionState'
 
 export function SessionPage() {
   const { round: roundPath } = useParams<{ round: string }>()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { season } = useSeason()
 
   const directSessionKey = searchParams.get('session') ? Number(searchParams.get('session')) : undefined
   const roundParam = roundPath ? Number(roundPath) : searchParams.get('round') ? Number(searchParams.get('round')) : undefined
   const seasonParam = searchParams.get('season') ? Number(searchParams.get('season')) : season
   const raceDateParam = searchParams.get('race_date') ?? undefined
+  const sessionTypeParam = searchParams.get('session_type') ?? 'Race'
 
   const { data: scheduleData } = useNextSession()
 
+  // Fetch all sessions for this weekend (for session switcher)
+  const { data: roundSessionsData } = useQuery({
+    queryKey: ['roundSessions', seasonParam, roundParam, raceDateParam],
+    queryFn: () => api.getRoundSessions(seasonParam, roundParam!, raceDateParam),
+    enabled: !!roundParam && !directSessionKey,
+    staleTime: 3600 * 1000,
+  })
+
   // Resolve round → session key if needed
   const { data: roundLookup, error: roundError } = useQuery({
-    queryKey: ['sessionKeyLookup', seasonParam, roundParam, raceDateParam],
-    queryFn: () => api.getSessionKey(seasonParam, roundParam!, 'Race', raceDateParam),
+    queryKey: ['sessionKeyLookup', seasonParam, roundParam, raceDateParam, sessionTypeParam],
+    queryFn: () => api.getSessionKey(seasonParam, roundParam!, sessionTypeParam, raceDateParam),
     enabled: !!roundParam && !directSessionKey,
     retry: 1,
   })
@@ -105,6 +114,8 @@ export function SessionPage() {
             downloadPollRef.current = null
             setDownloadStatus('idle')
             queryClient.invalidateQueries({ queryKey: ['lapTelemetry'] })
+            queryClient.invalidateQueries({ queryKey: ['sessionDownloaded', sessionKey] })
+            setReplayStarted(true)
           } else if (data.status === 'error') {
             clearInterval(downloadPollRef.current!)
             downloadPollRef.current = null
@@ -266,6 +277,35 @@ export function SessionPage() {
         </div>
       </div>
 
+      {/* Session switcher */}
+      {roundParam && roundSessionsData && roundSessionsData.sessions.length > 1 && (
+        <div className="flex gap-1 flex-wrap">
+          {roundSessionsData.sessions.map((s) => {
+            const isActive = s.session_key === sessionKey
+            return (
+              <button
+                key={s.session_key}
+                onClick={() => {
+                  setSearchParams(prev => {
+                    const next = new URLSearchParams(prev)
+                    next.set('session_type', s.session_name)
+                    return next
+                  })
+                  setReplayStarted(false)
+                }}
+                className={`px-2.5 py-1 rounded text-[10px] font-mono transition-colors ${
+                  isActive
+                    ? 'bg-accent text-white'
+                    : 'bg-bg-elevated text-text-tertiary hover:text-text-primary hover:bg-bg-card border border-border'
+                }`}
+              >
+                {s.session_name.toUpperCase()}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Replay controls */}
       {replayStarted && hasReplay && (
         <ReplayControls
@@ -276,12 +316,37 @@ export function SessionPage() {
         />
       )}
 
-      {/* Start replay button */}
+      {/* Start replay / download prompt */}
       {!replayStarted && canReplay && (
-        <div className="bg-bg-card border border-border rounded-xl px-4 py-3 flex items-center justify-center">
-          <button onClick={() => setReplayStarted(true)} className="text-xs text-accent hover:text-accent/80 font-medium">
-            REPLAY ▶
-          </button>
+        <div className="bg-bg-card border border-border rounded-xl px-4 py-4 flex items-center justify-center">
+          {downloadedData?.downloaded || isLive || hasReplay ? (
+            <button onClick={() => setReplayStarted(true)} className="text-xs text-accent hover:text-accent/80 font-medium">
+              REPLAY ▶
+            </button>
+          ) : downloadStatus === 'loading' ? (
+            <div className="w-full max-w-xs flex flex-col gap-2">
+              <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
+                <div className="h-full bg-accent rounded-full transition-all duration-500" style={{ width: `${downloadProgress.percent}%` }} />
+              </div>
+              <span className="text-[9px] font-mono text-text-tertiary text-center">
+                {downloadProgress.message || 'DOWNLOADING...'} ({Math.round(downloadProgress.percent)}%)
+              </span>
+            </div>
+          ) : downloadedData?.downloaded === false && effectiveSessionKey ? (
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-[10px] text-text-tertiary font-mono">Replay requires downloaded session data</span>
+              <button
+                onClick={() => startSessionDownload(effectiveSessionKey)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded text-[10px] font-mono text-accent transition-colors"
+              >
+                {downloadStatus === 'error' ? 'DOWNLOAD FAILED — RETRY' : 'DOWNLOAD TO REPLAY ▶'}
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setReplayStarted(true)} className="text-xs text-accent hover:text-accent/80 font-medium">
+              REPLAY ▶
+            </button>
+          )}
         </div>
       )}
 
