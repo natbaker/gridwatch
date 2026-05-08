@@ -32,7 +32,8 @@ export function ReplayControls({
   const progress = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0
 
   return (
-    <div className="flex items-center gap-3 bg-bg-elevated rounded-lg px-3 py-2">
+    <div className="bg-bg-elevated rounded-lg px-3 py-2">
+      <div className="flex items-center gap-3">
       <button
         onClick={onTogglePlay}
         disabled={totalDuration === 0}
@@ -54,7 +55,7 @@ export function ReplayControls({
         )}
       </button>
 
-      <span className="text-[11px] font-mono text-text-secondary w-12 text-right flex-shrink-0">
+      <span className="hidden sm:inline text-[11px] font-mono text-text-secondary w-12 text-right flex-shrink-0">
         {formatTime(currentTime)}
       </span>
 
@@ -98,16 +99,34 @@ export function ReplayControls({
         </div>
       </div>
 
-      <span className="text-[11px] font-mono text-text-tertiary w-12 flex-shrink-0">
+      <span className="text-[11px] font-mono text-text-tertiary flex-shrink-0 sm:w-12">
+        <span className="sm:hidden">{formatTime(currentTime)} / </span>
         {formatTime(totalDuration)}
       </span>
 
-      <div className="flex gap-1 flex-shrink-0">
+      <div className="hidden sm:flex gap-1 flex-shrink-0">
         {SPEEDS.map((s) => (
           <button
             key={s}
             onClick={() => onSetSpeed(s)}
             className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+              speed === s
+                ? 'bg-accent text-white'
+                : 'text-text-tertiary hover:text-text-primary hover:bg-bg-card'
+            }`}
+          >
+            {s}x
+          </button>
+        ))}
+      </div>
+      </div>
+
+      <div className="flex sm:hidden gap-1 mt-2">
+        {SPEEDS.map((s) => (
+          <button
+            key={s}
+            onClick={() => onSetSpeed(s)}
+            className={`flex-1 py-1 rounded text-[10px] font-mono transition-colors ${
               speed === s
                 ? 'bg-accent text-white'
                 : 'text-text-tertiary hover:text-text-primary hover:bg-bg-card'
