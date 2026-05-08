@@ -41,7 +41,7 @@ class LiveTimingFacade:
         self._cache = cache
         self._http = http_client
 
-    async def get_session_key_for_round(self, year: int, round_num: int, session_type: str = "Race") -> dict:
+    async def get_session_key_for_round(self, year: int, round_num: int, session_type: str = "Race", race_date: str | None = None) -> dict:
         """Look up session key by year, round number, and session type."""
         cache_key = f"session_key_{year}_{round_num}_{session_type}"
         cached = self._cache.get(cache_key)
@@ -55,9 +55,18 @@ class LiveTimingFacade:
                 m for m in meetings
                 if "test" not in m.get("meeting_name", "").lower()
             ]
-            if round_num < 1 or round_num > len(race_meetings):
-                return {"session_key": None, "error": "Round not found"}
-            meeting = race_meetings[round_num - 1]
+
+            if race_date:
+                # Match by date proximity to avoid index misalignment from cancelled races
+                target = datetime.fromisoformat(race_date)
+                meeting = min(
+                    race_meetings,
+                    key=lambda m: abs((datetime.fromisoformat(m["date_start"][:10]) - target).days),
+                )
+            else:
+                if round_num < 1 or round_num > len(race_meetings):
+                    return {"session_key": None, "error": "Round not found"}
+                meeting = race_meetings[round_num - 1]
             meeting_key = meeting["meeting_key"]
 
             sessions = await self._openf1.get_sessions(meeting_key=str(meeting_key))

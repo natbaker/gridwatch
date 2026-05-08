@@ -29,10 +29,11 @@ async def get_session_key_for_round(
     year: int = Query(...),
     round: int = Query(...),
     session_type: str = Query("Race"),
+    race_date: str | None = Query(None),
 ):
     """Look up OpenF1 session key by year, round number, and session type."""
     facade = request.app.state.live_timing_facade
-    result = await facade.get_session_key_for_round(year, round, session_type)
+    result = await facade.get_session_key_for_round(year, round, session_type, race_date)
     return result
 
 

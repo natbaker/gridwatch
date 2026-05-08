@@ -57,8 +57,11 @@ export const api = {
     fetchJson<ReplayPositionsResponse>(`/live-timing/replay/positions?session_key=${sessionKey}&from=${encodeURIComponent(from)}&seconds=${seconds}`),
   getCarTelemetry: (sessionKey: number, driverNumber: number, from: string, seconds = 30) =>
     fetchJson<TelemetryResponse>(`/live-timing/replay/telemetry?session_key=${sessionKey}&driver_number=${driverNumber}&from=${encodeURIComponent(from)}&seconds=${seconds}`),
-  getSessionKey: (year: number, round: number, sessionType = 'Race') =>
-    fetchJson<{ session_key: number | null }>(`/live-timing/session-key?year=${year}&round=${round}&session_type=${sessionType}`),
+  getSessionKey: (year: number, round: number, sessionType = 'Race', raceDate?: string) => {
+    const params = new URLSearchParams({ year: String(year), round: String(round), session_type: sessionType })
+    if (raceDate) params.set('race_date', raceDate)
+    return fetchJson<{ session_key: number | null }>(`/live-timing/session-key?${params}`)
+  },
   getLapTelemetry: (sessionKey: number, driverNumber: number, lap = 'fastest') =>
     fetchJson<LapTelemetryResponse>(`/sessions/${sessionKey}/lap-telemetry?driver_number=${driverNumber}&lap=${lap}`),
   getSessionDownloaded: (sessionKey: number) =>

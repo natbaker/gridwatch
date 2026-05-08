@@ -32,13 +32,14 @@ export function SessionPage() {
   const directSessionKey = searchParams.get('session') ? Number(searchParams.get('session')) : undefined
   const roundParam = roundPath ? Number(roundPath) : searchParams.get('round') ? Number(searchParams.get('round')) : undefined
   const seasonParam = searchParams.get('season') ? Number(searchParams.get('season')) : season
+  const raceDateParam = searchParams.get('race_date') ?? undefined
 
   const { data: scheduleData } = useNextSession()
 
   // Resolve round → session key if needed
   const { data: roundLookup, error: roundError } = useQuery({
-    queryKey: ['sessionKeyLookup', seasonParam, roundParam],
-    queryFn: () => api.getSessionKey(seasonParam, roundParam!),
+    queryKey: ['sessionKeyLookup', seasonParam, roundParam, raceDateParam],
+    queryFn: () => api.getSessionKey(seasonParam, roundParam!, 'Race', raceDateParam),
     enabled: !!roundParam && !directSessionKey,
     retry: 1,
   })

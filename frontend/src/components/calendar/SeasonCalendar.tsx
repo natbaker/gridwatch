@@ -172,7 +172,7 @@ export function SeasonCalendar() {
               {race.is_completed && (
                 <span className="flex items-center gap-3 ml-auto">
                   <Link
-                    to={`/live?round=${race.round}&season=${season}`}
+                    to={`/live?round=${race.round}&season=${season}&race_date=${race.race_date}`}
                     onClick={(e) => e.stopPropagation()}
                     className="text-[10px] text-accent hover:text-accent/80 font-medium"
                   >
@@ -193,7 +193,7 @@ export function SeasonCalendar() {
         )
 
         return race.is_completed ? (
-          <Link key={race.round} to={`/race/${race.round}`}>{card}</Link>
+          <Link key={race.round} to={`/race/${race.round}?race_date=${race.race_date}`}>{card}</Link>
         ) : (
           <div key={race.round}>{card}</div>
         )
