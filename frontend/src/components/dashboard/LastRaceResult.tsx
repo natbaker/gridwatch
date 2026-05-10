@@ -26,7 +26,10 @@ export function LastRaceResult() {
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-text-tertiary">{data.race_name}</span>
           {data.round ? (
-            <Link to={`/race/${data.round}`} className="text-[10px] text-accent hover:underline">
+            <Link
+              to={`/race/${data.round}${data.date ? `?race_date=${data.date}` : ''}`}
+              className="text-[10px] text-accent hover:underline"
+            >
               FULL RESULTS →
             </Link>
           ) : null}

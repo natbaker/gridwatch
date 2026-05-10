@@ -128,6 +128,7 @@ export interface SessionResultResponse {
   short_name: string
   race_name: string
   round?: number
+  date?: string
   results: SessionResultEntry[]
   qualifying_segments: QualifyingSegments | null
   warnings: string[]

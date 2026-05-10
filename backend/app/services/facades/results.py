@@ -56,6 +56,7 @@ class ResultsFacade:
             "short_name": "RACE",
             "race_name": data["race_name"],
             "round": int(data.get("round", 0)),
+            "date": data.get("date", ""),
             "results": results,
             "qualifying_segments": None,
             "warnings": warnings,
