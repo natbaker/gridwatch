@@ -319,6 +319,7 @@ class ScheduleFacade:
                 "flag_emoji": next_race["flag_emoji"],
                 "timezone": next_race["timezone"],
                 "is_sprint_weekend": next_race["is_sprint_weekend"],
+                "race_date": next_race.get("race_date", "")[:10],
             },
             "session": next_session,
             "weekend_sessions": weekend_sessions,

@@ -48,6 +48,7 @@ export interface NextSessionRace {
   flag_emoji: string
   timezone: string
   is_sprint_weekend: boolean
+  race_date?: string
 }
 
 export interface SessionInfo {

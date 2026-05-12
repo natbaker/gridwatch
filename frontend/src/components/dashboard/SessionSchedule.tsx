@@ -13,6 +13,7 @@ export function SessionSchedule() {
 
   const sessions = data.weekend_sessions
   const round = data.race.round
+  const raceDate = data.race.race_date ?? ''
   const firstDate = new Date(sessions[0].start_utc)
   const lastDate = new Date(sessions[sessions.length - 1].start_utc)
   const month = firstDate.toLocaleDateString('en-US', { month: 'short' })
@@ -25,12 +26,13 @@ export function SessionSchedule() {
       <h3 className="text-xs text-text-secondary tracking-[2px] mb-4">WEEKEND SCHEDULE • {dateRange}</h3>
       <div className="space-y-2">
         {data.weekend_sessions.map((s) => {
-          const hasReplay = !!s.session_key
           const isLive = s.status === 'live'
           const isUpcoming = s.status === 'upcoming'
-          const to = isLive ? '/live' : s.session_key
-            ? `/race/${round}?session=${s.session_key}`
-            : `/race/${round}`
+          const hasReplay = !!s.session_key
+          const datePart = raceDate ? `&race_date=${raceDate}` : ''
+          const to = isLive
+            ? '/live'
+            : `/race/${round}?session_type=${encodeURIComponent(s.name)}${datePart}`
 
           const inner = (
             <div
