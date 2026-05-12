@@ -64,22 +64,40 @@ class ResultsFacade:
         self._cache.set(cache_key, result, settings.cache_ttl_results)
         return result
 
-    async def get_race_results(self, round_num: int, season: int = CURRENT_SEASON) -> dict:
-        cache_key = f"results_round_{season}_{round_num}"
+    async def _resolve_jolpica_round(self, season: int, round_num: int, race_date: str | None) -> int:
+        if not race_date:
+            return round_num
+        try:
+            from datetime import date as date_type
+            target_dt = date_type.fromisoformat(race_date[:10])
+            schedule_key = f"jolpica_schedule_{season}"
+            races = self._cache.get(schedule_key)
+            if not races:
+                races = await self._jolpica.get_schedule(season)
+                self._cache.set(schedule_key, races, 3600)
+            best = min(races, key=lambda r: abs((date_type.fromisoformat(r["date"]) - target_dt).days))
+            return int(best["round"])
+        except Exception as e:
+            logger.warning(f"Could not resolve Jolpica round from date {race_date}: {e}")
+            return round_num
+
+    async def get_race_results(self, round_num: int, season: int = CURRENT_SEASON, race_date: str | None = None) -> dict:
+        jolpica_round = await self._resolve_jolpica_round(season, round_num, race_date)
+        cache_key = f"results_round_{season}_{jolpica_round}"
         cached = self._cache.get(cache_key)
         if cached:
             return cached
 
         warnings = []
         try:
-            data = await self._jolpica.get_round_results(season, round_num)
+            data = await self._jolpica.get_round_results(season, jolpica_round)
         except Exception as e:
             logger.warning(f"Round {round_num} results failed: {e}")
             stale = self._cache.get_stale(cache_key)
             if stale:
                 stale["warnings"] = ["Using cached results"]
                 return stale
-            return {"race_name": "", "round": round_num, "circuit": "", "date": "", "results": [], "qualifying": [], "warnings": ["Results unavailable"]}
+            return {"race_name": "", "round": jolpica_round, "circuit": "", "date": "", "results": [], "qualifying": [], "warnings": ["Results unavailable"]}
 
         results = []
         for r in data["results"]:

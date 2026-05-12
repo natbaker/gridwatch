@@ -75,7 +75,7 @@ export function SessionPage() {
 
   // Race results (when we have a round number)
   const effectiveRound = roundParam ?? 0
-  const { data: resultsData } = useRaceResults(effectiveRound)
+  const { data: resultsData } = useRaceResults(effectiveRound, raceDateParam)
 
   // Qualifying session key (for lap comparison on qualifying tab)
   const { data: qualiKeyData } = useQuery({

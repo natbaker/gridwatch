@@ -12,9 +12,9 @@ async def get_latest_results(request: Request, season: int = Query(CURRENT_SEASO
 
 
 @router.get("/results/race/{round_num}")
-async def get_race_results(round_num: int, request: Request, season: int = Query(CURRENT_SEASON)):
+async def get_race_results(round_num: int, request: Request, season: int = Query(CURRENT_SEASON), race_date: str | None = Query(None)):
     facade = request.app.state.results_facade
-    return await facade.get_race_results(round_num, season)
+    return await facade.get_race_results(round_num, season, race_date)
 
 
 @router.get("/results/session/{session_key}")

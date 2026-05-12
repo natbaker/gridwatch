@@ -39,7 +39,13 @@ export const api = {
   getDriverStandings: (season?: number) => fetchJson<DriverStandingsResponse>(`/standings/drivers${seasonParam(season)}`),
   getConstructorStandings: (season?: number) => fetchJson<ConstructorStandingsResponse>(`/standings/constructors${seasonParam(season)}`),
   getLatestResults: (season?: number) => fetchJson<SessionResultResponse>(`/results/latest${seasonParam(season)}`),
-  getRaceResults: (round: number, season?: number) => fetchJson<RaceResultsResponse>(`/results/race/${round}${seasonParam(season)}`),
+  getRaceResults: (round: number, season?: number, raceDate?: string) => {
+    const params = new URLSearchParams()
+    if (season) params.set('season', String(season))
+    if (raceDate) params.set('race_date', raceDate)
+    const qs = params.toString()
+    return fetchJson<RaceResultsResponse>(`/results/race/${round}${qs ? `?${qs}` : ''}`)
+  },
   getSessionResult: (key: number) => fetchJson<SessionResultResponse>(`/results/session/${key}`),
   getWeather: (round: number) => fetchJson<WeatherResponse>(`/weather/${round}`),
   getLiveTiming: (sessionKey?: number) =>
