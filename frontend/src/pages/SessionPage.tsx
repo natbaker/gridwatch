@@ -93,6 +93,8 @@ export function SessionPage() {
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [downloadError, setDownloadError] = useState<string>('')
   const [downloadProgress, setDownloadProgress] = useState<{ percent: number; message: string }>({ percent: 0, message: '' })
+  const [showTokenPrompt, setShowTokenPrompt] = useState(false)
+  const [tokenPromptInput, setTokenPromptInput] = useState('')
   const downloadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const queryClient = useQueryClient()
 
@@ -107,19 +109,31 @@ export function SessionPage() {
     setDownloadStatus('idle')
     setDownloadProgress({ percent: 0, message: '' })
     setDownloadError('')
+    setShowTokenPrompt(false)
+    setTokenPromptInput('')
   }, [sessionKey])
 
   const startSessionDownload = async (sessionKey: number) => {
     if (downloadStatus === 'loading') return
+    const adminToken = localStorage.getItem('admin_token') ?? ''
+    if (!adminToken) {
+      setShowTokenPrompt(true)
+      return
+    }
     setDownloadStatus('loading')
     setDownloadProgress({ percent: 0, message: 'Starting...' })
     try {
-      const adminToken = localStorage.getItem('admin_token') ?? ''
       const adminHeaders = { Authorization: `Bearer ${adminToken}` }
       const postResp = await fetch(`/api/admin/download?session_key=${sessionKey}`, { method: 'POST', headers: adminHeaders })
       if (!postResp.ok) {
-        setDownloadError(postResp.status === 401 ? 'Set admin token on the Admin page first' : 'Download failed')
-        setDownloadStatus('error')
+        if (postResp.status === 401) {
+          localStorage.removeItem('admin_token')
+          setDownloadStatus('idle')
+          setShowTokenPrompt(true)
+        } else {
+          setDownloadError('Download failed')
+          setDownloadStatus('error')
+        }
         return
       }
       const handleStatus = async () => {
@@ -153,6 +167,15 @@ export function SessionPage() {
     } catch {
       setDownloadStatus('error')
     }
+  }
+
+  const saveTokenAndDownload = (e: React.FormEvent, sessionKey: number) => {
+    e.preventDefault()
+    if (!tokenPromptInput) return
+    localStorage.setItem('admin_token', tokenPromptInput)
+    setTokenPromptInput('')
+    setShowTokenPrompt(false)
+    startSessionDownload(sessionKey)
   }
 
   // Session key from timing data when no URL params (direct /live visit)
@@ -364,12 +387,32 @@ export function SessionPage() {
           ) : downloadedData?.downloaded === false && effectiveSessionKey ? (
             <div className="flex flex-col items-center gap-2">
               <span className="text-[10px] text-text-tertiary font-mono">Replay requires downloaded session data</span>
-              <button
-                onClick={() => startSessionDownload(effectiveSessionKey)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded text-[10px] font-mono text-accent transition-colors"
-              >
-                {downloadStatus === 'error' ? (downloadError || 'DOWNLOAD FAILED — RETRY') : 'DOWNLOAD TO REPLAY ▶'}
-              </button>
+              {showTokenPrompt ? (
+                <form onSubmit={e => saveTokenAndDownload(e, effectiveSessionKey)} className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    value={tokenPromptInput}
+                    onChange={e => setTokenPromptInput(e.target.value)}
+                    placeholder="Admin token"
+                    autoFocus
+                    className="text-xs bg-bg-elevated border border-border rounded-md px-3 py-1.5 text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent w-36"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!tokenPromptInput}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded text-[10px] font-mono text-accent transition-colors disabled:opacity-40"
+                  >
+                    SAVE & DOWNLOAD ▶
+                  </button>
+                </form>
+              ) : (
+                <button
+                  onClick={() => startSessionDownload(effectiveSessionKey)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded text-[10px] font-mono text-accent transition-colors"
+                >
+                  {downloadStatus === 'error' ? (downloadError || 'DOWNLOAD FAILED — RETRY') : 'DOWNLOAD TO REPLAY ▶'}
+                </button>
+              )}
             </div>
           ) : (
             <button onClick={() => setReplayStarted(true)} className="text-xs text-accent hover:text-accent/80 font-medium">
