@@ -23,8 +23,11 @@ MONGO_URL = os.getenv("MONGO_CONNECTION_STRING", "mongodb://localhost:27017")
 DB_NAME = os.getenv("OPENF1_DB_NAME", "openf1-livetiming")
 SOURCE_URL = os.getenv("OPENF1_SOURCE_URL", "https://api.openf1.org/v1").rstrip("/")
 
+# car_data and location are excluded: openf1.org rejects bulk CSV exports
+# for these (422). They are captured in real-time by ingest-realtime for
+# future sessions, and fetched on-demand from openf1.org for older ones.
 TIMING_ENDPOINTS = [
-    "car_data", "drivers", "intervals", "laps", "location",
+    "drivers", "intervals", "laps",
     "pit", "position", "race_control", "stints", "team_radio", "weather",
 ]
 YEARS = [2023, 2024, 2025, 2026]
@@ -53,7 +56,7 @@ def fetch_csv(path: str, params: dict) -> list[dict]:
         with urllib.request.urlopen(url, timeout=300) as r:
             return list(csv.DictReader(io.StringIO(r.read().decode())))
     except urllib.error.HTTPError as e:
-        if e.code in (404, 204):
+        if e.code in (404, 204, 422):
             return []
         raise
 
