@@ -55,6 +55,8 @@ function Panel({
   dataKeyB,
   colorA,
   colorB,
+  abbrA,
+  abbrB,
   label,
   domain,
   unit,
@@ -64,6 +66,8 @@ function Panel({
   dataKeyB: string
   colorA: string
   colorB: string
+  abbrA: string
+  abbrB: string
   label: string
   domain: [number, number]
   unit: string
@@ -107,15 +111,15 @@ function Panel({
                   lineHeight: 1.8,
                 }}>
                   <div style={{ color: '#5A5A66', marginBottom: 2 }}>{Number(label).toFixed(1)}% distance</div>
-                  <div style={{ color: colorA }}>{valA !== undefined ? `${valA} ${unit}` : '—'}</div>
-                  <div style={{ color: colorB }}>{valB !== undefined ? `${valB} ${unit}` : '—'}</div>
+                  <div style={{ color: colorA }}>{abbrA}: {valA !== undefined ? `${valA} ${unit}` : '—'}</div>
+                  <div style={{ color: colorB }}>{abbrB}: {valB !== undefined ? `${valB} ${unit}` : '—'}</div>
                 </div>
               )
             }}
           />
           <ReferenceLine y={0} stroke="#2A2A30" />
           <Line type="monotone" dataKey={dataKeyA} stroke={colorA} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls />
-          <Line type="monotone" dataKey={dataKeyB} stroke={colorB} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls />
+          <Line type="monotone" dataKey={dataKeyB} stroke={colorB} dot={false} strokeWidth={1.5} strokeDasharray="6 3" isAnimationActive={false} connectNulls />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -126,6 +130,8 @@ export function TelemetryChart({ driverA, driverB }: TelemetryChartProps) {
   const data = mergeChannels(driverA?.data ?? null, driverB?.data ?? null)
   const colorA = driverA?.color ?? '#fff'
   const colorB = driverB?.color ?? '#888'
+  const abbrA = driverA?.abbreviation ?? ''
+  const abbrB = driverB?.abbreviation ?? ''
 
   if (data.length === 0) return null
 
@@ -135,7 +141,9 @@ export function TelemetryChart({ driverA, driverB }: TelemetryChartProps) {
       <div className="flex items-center gap-4 mb-2">
         {driverA && (
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-0.5 rounded" style={{ backgroundColor: colorA }} />
+            <svg width="16" height="6" className="shrink-0">
+              <line x1="0" y1="3" x2="16" y2="3" stroke={colorA} strokeWidth="2" />
+            </svg>
             <span className="text-[10px] font-mono" style={{ color: colorA }}>
               {driverA.abbreviation} — Lap {driverA.data.lap_number}{driverA.data.lap_time ? ` (${driverA.data.lap_time})` : ''}
             </span>
@@ -143,7 +151,9 @@ export function TelemetryChart({ driverA, driverB }: TelemetryChartProps) {
         )}
         {driverB && (
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-0.5 rounded" style={{ backgroundColor: colorB }} />
+            <svg width="16" height="6" className="shrink-0">
+              <line x1="0" y1="3" x2="16" y2="3" stroke={colorB} strokeWidth="2" strokeDasharray="5 2" />
+            </svg>
             <span className="text-[10px] font-mono" style={{ color: colorB }}>
               {driverB.abbreviation} — Lap {driverB.data.lap_number}{driverB.data.lap_time ? ` (${driverB.data.lap_time})` : ''}
             </span>
@@ -151,9 +161,9 @@ export function TelemetryChart({ driverA, driverB }: TelemetryChartProps) {
         )}
       </div>
 
-      <Panel data={data} dataKeyA="speedA" dataKeyB="speedB" colorA={colorA} colorB={colorB} label="SPEED" domain={[0, 350]} unit="km/h" />
-      <Panel data={data} dataKeyA="thrA" dataKeyB="thrB" colorA={colorA} colorB={colorB} label="THROTTLE" domain={[0, 100]} unit="%" />
-      <Panel data={data} dataKeyA="brkA" dataKeyB="brkB" colorA={colorA} colorB={colorB} label="BRAKE" domain={[0, 100]} unit="%" />
+      <Panel data={data} dataKeyA="speedA" dataKeyB="speedB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="SPEED" domain={[0, 350]} unit="km/h" />
+      <Panel data={data} dataKeyA="thrA" dataKeyB="thrB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="THROTTLE" domain={[0, 100]} unit="%" />
+      <Panel data={data} dataKeyA="brkA" dataKeyB="brkB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="BRAKE" domain={[0, 100]} unit="%" />
 
       {/* Distance axis label */}
       <div className="flex justify-between text-[8px] font-mono text-text-tertiary px-8">
