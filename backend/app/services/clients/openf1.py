@@ -1,49 +1,26 @@
 import asyncio
 import logging
-from urllib.parse import urlencode
 
 import httpx
-
-from app.response_cache import ResponseCache, PERMANENT_TTL, DEFAULT_TTL
 
 logger = logging.getLogger(__name__)
 
 
 class OpenF1Client:
-    def __init__(self, http_client: httpx.AsyncClient, cache: ResponseCache | None = None) -> None:
+    def __init__(self, http_client: httpx.AsyncClient, fallback_client: httpx.AsyncClient | None = None) -> None:
         self._http = http_client
-        self._cache = cache
-
-    def _cache_key(self, path: str, params: dict | None) -> str:
-        qs = urlencode(sorted((params or {}).items()))
-        return f"{path}?{qs}" if qs else path
-
-    def _ttl_for_request(self, params: dict | None) -> float:
-        """Determine cache TTL based on request parameters.
-
-        Requests scoped to a specific session_key are historical data
-        that never changes — cache permanently. Meeting lists and
-        session lookups by meeting_key are cached for 1 hour.
-        Everything else gets a short TTL.
-        """
-        if not params:
-            return DEFAULT_TTL
-        if "session_key" in params:
-            return PERMANENT_TTL
-        if "meeting_key" in params or "year" in params:
-            return 3600  # 1 hour
-        return DEFAULT_TTL
+        self._fallback = fallback_client
 
     async def _get(self, path: str, params: dict | None = None) -> list[dict]:
-        # Check cache first
-        if self._cache:
-            key = self._cache_key(path, params)
-            cached = self._cache.get(key)
-            if cached is not None:
-                return cached
+        result = await self._fetch(self._http, path, params)
+        if not result and self._fallback:
+            logger.debug(f"Local OpenF1 returned empty for {path}, trying fallback")
+            result = await self._fetch(self._fallback, path, params)
+        return result
 
+    async def _fetch(self, client: httpx.AsyncClient, path: str, params: dict | None) -> list[dict]:
         for attempt in range(4):
-            resp = await self._http.get(path, params=params)
+            resp = await client.get(path, params=params)
             if resp.status_code == 404:
                 return []
             if resp.status_code == 429:
@@ -58,13 +35,6 @@ class OpenF1Client:
             data = resp.json()
             if isinstance(data, dict):
                 return []
-
-            # Cache the response
-            if self._cache and data:
-                key = self._cache_key(path, params)
-                ttl = self._ttl_for_request(params)
-                self._cache.set(key, data, ttl)
-
             return data
 
         logger.warning(f"Failed after retries: {path}")

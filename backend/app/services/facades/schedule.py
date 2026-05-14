@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 from app.cache import TTLCache
 from app.circuits import CIRCUITS, get_circuit_by_name
 from app.config import settings
-from app.db import get_downloaded_sessions
 from app.services.clients.jolpica import JolpicaClient
 from app.services.clients.openf1 import OpenF1Client
 
@@ -295,19 +294,6 @@ class ScheduleFacade:
                     "end_utc": None,
                     "is_live": False,
                 }
-
-        # Match downloaded sessions by session_name to add session_keys
-        try:
-            downloaded = get_downloaded_sessions()
-            dl_by_name = {s["session_name"]: s["session_key"] for s in downloaded
-                          if s.get("circuit", "").lower() in next_race.get("circuit", "").lower()
-                          or next_race.get("circuit", "").lower() in s.get("circuit", "").lower()}
-            for ws in weekend_sessions:
-                sk = dl_by_name.get(ws["name"])
-                if sk:
-                    ws["session_key"] = sk
-        except Exception:
-            pass
 
         result = {
             "race": {

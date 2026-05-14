@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Request, Query
-from app.db import is_session_downloaded
 
 router = APIRouter(prefix="/api")
 
@@ -31,7 +30,6 @@ async def get_session_key_for_round(
     session_type: str = Query("Race"),
     race_date: str | None = Query(None),
 ):
-    """Look up OpenF1 session key by year, round number, and session type."""
     facade = request.app.state.live_timing_facade
     result = await facade.get_session_key_for_round(year, round, session_type, race_date)
     return result
@@ -75,11 +73,6 @@ async def get_car_telemetry(
 ):
     facade = request.app.state.live_timing_facade
     return await facade.get_car_telemetry(session_key, driver_number, from_time, seconds)
-
-
-@router.get("/sessions/{session_key}/downloaded")
-async def get_session_downloaded(session_key: int):
-    return {"downloaded": is_session_downloaded(session_key)}
 
 
 @router.get("/sessions/{session_key}/lap-telemetry")

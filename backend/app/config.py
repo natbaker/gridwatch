@@ -9,10 +9,10 @@ class Settings(BaseSettings):
 
     jolpica_base_url: str = "https://api.jolpi.ca/ergast/f1"
     openf1_base_url: str = "https://api.openf1.org/v1"
+    openf1_fallback_url: str = ""
     openmeteo_base_url: str = "https://api.open-meteo.com"
 
     admin_token: str = ""
-    db_path: str = "/data/f1.db"
 
     cache_ttl_schedule: int = 3600
     cache_ttl_next_session: int = 60

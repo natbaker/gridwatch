@@ -75,6 +75,4 @@ export const api = {
   },
   getLapTelemetry: (sessionKey: number, driverNumber: number, lap = 'fastest') =>
     fetchJson<LapTelemetryResponse>(`/sessions/${sessionKey}/lap-telemetry?driver_number=${driverNumber}&lap=${lap}`),
-  getSessionDownloaded: (sessionKey: number) =>
-    fetchJson<{ downloaded: boolean }>(`/sessions/${sessionKey}/downloaded`),
 }

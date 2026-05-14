@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useLiveTiming } from '../hooks/useLiveTiming'
 import { useNextSession } from '../hooks/useNextSession'
 import { useRaceResults } from '../hooks/useRaceResults'
@@ -71,13 +71,7 @@ export function SessionPage() {
   const lookupError = (roundLookup as Record<string, unknown>)?.error as string | undefined
   const sessionKey = directSessionKey ?? resolvedKey
 
-  const { data: downloadedData } = useQuery({
-    queryKey: ['sessionDownloaded', sessionKey],
-    queryFn: () => api.getSessionDownloaded(sessionKey!),
-    enabled: !!sessionKey,
-    staleTime: 60 * 1000,
-  })
-  const hudEnabled = searchParams.get('hud') === '1' || downloadedData?.downloaded === true
+  const hudEnabled = searchParams.get('hud') === '1'
 
   // Live timing (skip while resolving round)
   const pendingLookup = needsRoundLookup && !roundLookup && !roundError
@@ -102,94 +96,6 @@ export function SessionPage() {
   const [compareDriverA, setCompareDriverA] = useState<number | null>(null)
   const [compareDriverB, setCompareDriverB] = useState<number | null>(null)
   const [compareLapPreset, setCompareLapPreset] = useState<LapPreset>('fastest')
-  const [downloadStatus, setDownloadStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [downloadError, setDownloadError] = useState<string>('')
-  const [downloadProgress, setDownloadProgress] = useState<{ percent: number; message: string }>({ percent: 0, message: '' })
-  const [showTokenPrompt, setShowTokenPrompt] = useState(false)
-  const [tokenPromptInput, setTokenPromptInput] = useState('')
-  const downloadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const queryClient = useQueryClient()
-
-  useEffect(() => () => { if (downloadPollRef.current) clearInterval(downloadPollRef.current) }, [])
-
-  // Reset download state when the session changes
-  useEffect(() => {
-    if (downloadPollRef.current) {
-      clearInterval(downloadPollRef.current)
-      downloadPollRef.current = null
-    }
-    setDownloadStatus('idle')
-    setDownloadProgress({ percent: 0, message: '' })
-    setDownloadError('')
-    setShowTokenPrompt(false)
-    setTokenPromptInput('')
-  }, [sessionKey])
-
-  const startSessionDownload = async (sessionKey: number) => {
-    if (downloadStatus === 'loading') return
-    const adminToken = localStorage.getItem('admin_token') ?? ''
-    if (!adminToken) {
-      setShowTokenPrompt(true)
-      return
-    }
-    setDownloadStatus('loading')
-    setDownloadProgress({ percent: 0, message: 'Starting...' })
-    try {
-      const adminHeaders = { Authorization: `Bearer ${adminToken}` }
-      const postResp = await fetch(`/api/admin/download?session_key=${sessionKey}`, { method: 'POST', headers: adminHeaders })
-      if (!postResp.ok) {
-        if (postResp.status === 401) {
-          localStorage.removeItem('admin_token')
-          setDownloadStatus('idle')
-          setShowTokenPrompt(true)
-        } else {
-          setDownloadError('Download failed')
-          setDownloadStatus('error')
-        }
-        return
-      }
-      const handleStatus = async () => {
-        try {
-          const resp = await fetch(`/api/admin/download-status?session_key=${sessionKey}`, { headers: adminHeaders })
-          if (!resp.ok) {
-            clearInterval(downloadPollRef.current!)
-            downloadPollRef.current = null
-            setDownloadError('Download failed')
-            setDownloadStatus('error')
-            return
-          }
-          const data = await resp.json()
-          if (data.status === 'done') {
-            clearInterval(downloadPollRef.current!)
-            downloadPollRef.current = null
-            setDownloadStatus('idle')
-            queryClient.invalidateQueries({ queryKey: ['lapTelemetry'] })
-            queryClient.invalidateQueries({ queryKey: ['sessionDownloaded', sessionKey] })
-            setReplayStarted(true)
-          } else if (data.status === 'error') {
-            clearInterval(downloadPollRef.current!)
-            downloadPollRef.current = null
-            setDownloadStatus('error')
-          } else {
-            setDownloadProgress({ percent: data.percent ?? 0, message: data.message ?? '' })
-          }
-        } catch { /* ignore transient network errors */ }
-      }
-      downloadPollRef.current = setInterval(handleStatus, 1000)
-    } catch {
-      setDownloadStatus('error')
-    }
-  }
-
-  const saveTokenAndDownload = (e: React.FormEvent, sessionKey: number) => {
-    e.preventDefault()
-    if (!tokenPromptInput) return
-    localStorage.setItem('admin_token', tokenPromptInput)
-    setTokenPromptInput('')
-    setShowTokenPrompt(false)
-    startSessionDownload(sessionKey)
-  }
-
   // Session key from timing data when no URL params (direct /live visit)
   // When navigating by round, sessionKey is the resolved key — don't fall back to stale
   // timingData which may still reference the previous session during a session switch.
@@ -402,57 +308,12 @@ export function SessionPage() {
         />
       )}
 
-      {/* Start replay / download prompt */}
+      {/* Start replay */}
       {!replayStarted && canReplay && (
         <div className="bg-bg-card border border-border rounded-xl px-4 py-4 flex items-center justify-center">
-          {downloadedData?.downloaded || isLive || hasReplay ? (
-            <button onClick={() => setReplayStarted(true)} className="text-xs text-accent hover:text-accent/80 font-medium">
-              REPLAY ▶
-            </button>
-          ) : downloadStatus === 'loading' ? (
-            <div className="w-full max-w-xs flex flex-col gap-2">
-              <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
-                <div className="h-full bg-accent rounded-full transition-all duration-500" style={{ width: `${downloadProgress.percent}%` }} />
-              </div>
-              <span className="text-[9px] font-mono text-text-tertiary text-center">
-                {downloadProgress.message || 'DOWNLOADING...'} ({Math.round(downloadProgress.percent)}%)
-              </span>
-            </div>
-          ) : downloadedData?.downloaded === false && effectiveSessionKey ? (
-            <div className="flex flex-col items-center gap-2">
-              <span className="text-[10px] text-text-tertiary font-mono">Replay requires downloaded session data</span>
-              {showTokenPrompt ? (
-                <form onSubmit={e => saveTokenAndDownload(e, effectiveSessionKey)} className="flex items-center gap-2">
-                  <input
-                    type="password"
-                    value={tokenPromptInput}
-                    onChange={e => setTokenPromptInput(e.target.value)}
-                    placeholder="Admin token"
-                    autoFocus
-                    className="text-xs bg-bg-elevated border border-border rounded-md px-3 py-1.5 text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent w-36"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!tokenPromptInput}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded text-[10px] font-mono text-accent transition-colors disabled:opacity-40"
-                  >
-                    SAVE & DOWNLOAD ▶
-                  </button>
-                </form>
-              ) : (
-                <button
-                  onClick={() => startSessionDownload(effectiveSessionKey)}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded text-[10px] font-mono text-accent transition-colors"
-                >
-                  {downloadStatus === 'error' ? (downloadError || 'DOWNLOAD FAILED — RETRY') : 'DOWNLOAD TO REPLAY ▶'}
-                </button>
-              )}
-            </div>
-          ) : (
-            <button onClick={() => setReplayStarted(true)} className="text-xs text-accent hover:text-accent/80 font-medium">
-              REPLAY ▶
-            </button>
-          )}
+          <button onClick={() => setReplayStarted(true)} className="text-xs text-accent hover:text-accent/80 font-medium">
+            REPLAY ▶
+          </button>
         </div>
       )}
 
@@ -573,26 +434,6 @@ export function SessionPage() {
               {compTelemetryA.error && compTelemetryB.error && (
                 <div className="flex flex-col items-center gap-3 py-6">
                   <span className="text-[10px] text-text-tertiary font-mono">Session data not available for lap comparison</span>
-                  {compareSessionKey && downloadStatus === 'loading' ? (
-                    <div className="w-64 flex flex-col gap-1.5">
-                      <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-accent rounded-full transition-all duration-500"
-                          style={{ width: `${downloadProgress.percent}%` }}
-                        />
-                      </div>
-                      <span className="text-[9px] font-mono text-text-tertiary text-center">
-                        {downloadProgress.message || 'DOWNLOADING...'} ({Math.round(downloadProgress.percent)}%)
-                      </span>
-                    </div>
-                  ) : compareSessionKey ? (
-                    <button
-                      onClick={() => startSessionDownload(compareSessionKey)}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded text-[10px] font-mono text-accent transition-colors"
-                    >
-                      {downloadStatus === 'error' ? (downloadError || 'DOWNLOAD FAILED — RETRY') : 'DOWNLOAD SESSION DATA'}
-                    </button>
-                  ) : null}
                 </div>
               )}
               {!compTelemetryA.isLoading && !compTelemetryB.isLoading && (

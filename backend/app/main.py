@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.cache import TTLCache
 from app.config import settings
-from app.response_cache import ResponseCache
 from app.routers import health, results, schedule, standings, weather, news, live_timing, analytics, admin
 from app.services.clients.jolpica import JolpicaClient
 from app.services.clients.openf1 import OpenF1Client
@@ -21,12 +20,10 @@ from app.services.facades.weather import WeatherFacade
 from app.services.facades.news import NewsFacade
 from app.services.facades.live_timing import LiveTimingFacade
 from app.services.facades.analytics import AnalyticsFacade
-from app.db import init_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
     app.state.http_client = httpx.AsyncClient(timeout=10.0)
     app.state.cache = TTLCache()
 
@@ -34,10 +31,15 @@ async def lifespan(app: FastAPI):
         httpx.AsyncClient(base_url=settings.jolpica_base_url, timeout=10.0, follow_redirects=True),
         asyncio.Semaphore(4),
     )
-    openf1_cache = ResponseCache(db_path=str(Path(settings.db_path).parent / "openf1_cache.db"))
+
+    fallback_client = (
+        httpx.AsyncClient(base_url=settings.openf1_fallback_url, timeout=30.0)
+        if settings.openf1_fallback_url
+        else None
+    )
     openf1_client = OpenF1Client(
         httpx.AsyncClient(base_url=settings.openf1_base_url, timeout=30.0),
-        cache=openf1_cache,
+        fallback_client=fallback_client,
     )
 
     openmeteo_client = OpenMeteoClient(
@@ -47,7 +49,6 @@ async def lifespan(app: FastAPI):
 
     app.state.jolpica = jolpica_client
     app.state.openf1 = openf1_client
-    app.state.openf1_cache = openf1_cache
     app.state.openmeteo = openmeteo_client
     app.state.schedule_facade = ScheduleFacade(jolpica_client, openf1_client, app.state.cache)
     app.state.standings_facade = StandingsFacade(jolpica_client, app.state.cache)
@@ -62,8 +63,9 @@ async def lifespan(app: FastAPI):
     await app.state.http_client.aclose()
     await app.state.jolpica._http.aclose()
     await app.state.openf1._http.aclose()
+    if fallback_client:
+        await fallback_client.aclose()
     await app.state.openmeteo._http.aclose()
-    app.state.openf1._cache.close()
 
 
 app = FastAPI(title="Grid Watch API", version=settings.app_version, lifespan=lifespan)
@@ -91,19 +93,13 @@ from fastapi.responses import FileResponse
 
 logger = _logging.getLogger(__name__)
 
-# Serve frontend static files in production
 static_dir = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 if static_dir.exists():
     app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
 
-    # SPA catch-all: serve index.html for non-API, non-file paths
-    # Note: this must use {path:path} but we need to also register explicit
-    # sub-path patterns so FastAPI doesn't let this override API sub-routes
     @app.get("/{path:path}")
     async def spa_fallback(path: str):
         if path.startswith("api/"):
-            # Should not reach here for valid API routes (routers take priority)
-            # but just in case, return proper 404
             from fastapi.responses import JSONResponse
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         file_path = static_dir / path

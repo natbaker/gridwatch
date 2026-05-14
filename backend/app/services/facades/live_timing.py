@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from app.cache import TTLCache
-from app.db import is_session_downloaded, get_session_data_start, get_downloaded_session_info, get_car_data, get_radio_events, get_locations
 from app.services.circuit_geometry import (
     SVG_WIDTH, SVG_HEIGHT, SVG_PADDING,
     CIRCUIT_KEYS, gps_to_svg, build_bounds_from_circuit_info,
@@ -43,7 +42,12 @@ class LiveTimingFacade:
 
     async def _find_meeting(self, year: int, round_num: int, race_date: str | None) -> dict | None:
         """Return the OpenF1 meeting for a given Jolpica round, matching by date when provided."""
-        meetings = await self._openf1.get_meetings(year)
+        meetings_key = f"openf1_meetings_{year}"
+        meetings = self._cache.get(meetings_key)
+        if meetings is None:
+            meetings = await self._openf1.get_meetings(year)
+            if meetings:
+                self._cache.set(meetings_key, meetings, 3600)
         race_meetings = [m for m in meetings if "test" not in m.get("meeting_name", "").lower()]
         if not race_meetings:
             return None
@@ -67,7 +71,13 @@ class LiveTimingFacade:
             if not meeting:
                 return {"session_key": None, "error": "Round not found"}
 
-            sessions = await self._openf1.get_sessions(meeting_key=str(meeting["meeting_key"]))
+            meeting_key = str(meeting["meeting_key"])
+            sessions_cache_key = f"openf1_sessions_{meeting_key}"
+            sessions = self._cache.get(sessions_cache_key)
+            if sessions is None:
+                sessions = await self._openf1.get_sessions(meeting_key=meeting_key)
+                if sessions:
+                    self._cache.set(sessions_cache_key, sessions, 3600)
             # Prefer session_name match (e.g. "Race") over session_type match
             # because Sprint has session_type="Race" but session_name="Sprint"
             match = None
@@ -95,7 +105,13 @@ class LiveTimingFacade:
             meeting = await self._find_meeting(year, round_num, race_date)
             if not meeting:
                 return {"sessions": []}
-            sessions = await self._openf1.get_sessions(meeting_key=str(meeting["meeting_key"]))
+            meeting_key = str(meeting["meeting_key"])
+            sessions_cache_key = f"openf1_sessions_{meeting_key}"
+            sessions = self._cache.get(sessions_cache_key)
+            if sessions is None:
+                sessions = await self._openf1.get_sessions(meeting_key=meeting_key)
+                if sessions:
+                    self._cache.set(sessions_cache_key, sessions, 3600)
             result = {
                 "sessions": [
                     {"session_key": s["session_key"], "session_name": s["session_name"]}
@@ -928,26 +944,20 @@ class LiveTimingFacade:
                 "lap": p.get("lap_number"),
             })
 
-        # Fetch team radio events — prefer local DB
         radio_events = []
-        if is_session_downloaded(session_key):
-            for r in get_radio_events(session_key):
-                if r["t"] >= 0:
-                    radio_events.append({"t": r["t"], "n": r["driver_number"], "url": r["recording_url"]})
-        else:
-            try:
-                radio_raw = await self._openf1.get_team_radio(session_key)
-            except Exception:
-                radio_raw = []
-            for r in radio_raw:
-                date = r.get("date")
-                num = r.get("driver_number")
-                url = r.get("recording_url")
-                if not date or not num or not url:
-                    continue
-                t = (datetime.fromisoformat(date) - start_dt).total_seconds()
-                if t >= 0:
-                    radio_events.append({"t": round(t, 1), "n": num, "url": url})
+        try:
+            radio_raw = await self._openf1.get_team_radio(session_key)
+        except Exception:
+            radio_raw = []
+        for r in radio_raw:
+            date = r.get("date")
+            num = r.get("driver_number")
+            url = r.get("recording_url")
+            if not date or not num or not url:
+                continue
+            t = (datetime.fromisoformat(date) - start_dt).total_seconds()
+            if t >= 0:
+                radio_events.append({"t": round(t, 1), "n": num, "url": url})
 
         return {
             "session_key": session_key,
@@ -979,30 +989,6 @@ class LiveTimingFacade:
         if from_dt.tzinfo is None:
             from_dt = from_dt.replace(tzinfo=timezone.utc)
 
-        # Try local DB first
-        data_start = get_session_data_start(session_key) if is_session_downloaded(session_key) else None
-        if data_start:
-            start_dt = datetime.fromisoformat(data_start)
-            if start_dt.tzinfo is None:
-                start_dt = start_dt.replace(tzinfo=timezone.utc)
-            t_start = (from_dt - start_dt).total_seconds()
-            t_end = t_start + seconds
-            rows = get_locations(session_key, t_start, t_end)
-            positions = []
-            for row in rows:
-                x, y = row["x"], row["y"]
-                if x == 0 and y == 0:
-                    continue
-                svg_x, svg_y = gps_to_svg(x, y, bounds)
-                positions.append({
-                    "t": round(row["t"] - t_start, 2),
-                    "n": row["driver_number"],
-                    "x": svg_x,
-                    "y": svg_y,
-                })
-            return {"positions": positions, "track_path": bounds.get("track_path", "")}
-
-        # Fall back to OpenF1 API
         to_dt = from_dt + timedelta(seconds=seconds)
 
         try:
@@ -1056,27 +1042,6 @@ class LiveTimingFacade:
         if from_dt.tzinfo is None:
             from_dt = from_dt.replace(tzinfo=timezone.utc)
 
-        # Try local DB first
-        data_start = get_session_data_start(session_key) if is_session_downloaded(session_key) else None
-        if data_start:
-            start_dt = datetime.fromisoformat(data_start)
-            if start_dt.tzinfo is None:
-                start_dt = start_dt.replace(tzinfo=timezone.utc)
-            t_start = (from_dt - start_dt).total_seconds()
-            t_end = t_start + seconds
-            rows = get_car_data(session_key, driver_number, t_start, t_end)
-            samples = [{
-                "t": round(row["t"] - t_start, 2),
-                "spd": row["speed"] or 0,
-                "thr": row["throttle"] or 0,
-                "brk": row["brake"] or 0,
-                "rpm": row["rpm"] or 0,
-                "gear": row["gear"] or 0,
-                "drs": row["drs"] or 0,
-            } for row in rows]
-            return {"samples": samples}
-
-        # Fall back to OpenF1 API
         to_dt = from_dt + timedelta(seconds=seconds)
         try:
             raw = await self._openf1.get_car_data(
@@ -1109,29 +1074,14 @@ class LiveTimingFacade:
         """Get normalized telemetry for a specific lap preset (fastest/last/first).
 
         Returns speed/throttle/brake channels normalized to 0-100% lap distance.
-        Only works with locally cached session data.
         """
         import math
-        from app.db import get_session_data_start, is_session_downloaded, get_car_data, get_driver_locations
 
-        if not is_session_downloaded(session_key):
-            return {"error": "Session data not downloaded"}
-
-        data_start = get_session_data_start(session_key)
-        if not data_start:
-            return {"error": "No session start time"}
-
-        start_dt = datetime.fromisoformat(data_start)
-        if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=timezone.utc)
-
-        # Fetch all laps for this driver from OpenF1
         try:
             laps = await self._openf1.get_laps(session_key, driver_number=driver_number)
         except Exception:
             laps = []
 
-        # Filter to laps with a valid duration and date_start
         valid_laps = [
             lap for lap in laps
             if lap.get("lap_duration") and lap.get("date_start") and lap.get("lap_number")
@@ -1140,13 +1090,11 @@ class LiveTimingFacade:
         if not valid_laps:
             return {"error": "No lap data available"}
 
-        # Resolve preset to a specific lap
         if lap_preset == "fastest":
             chosen = min(valid_laps, key=lambda l: l["lap_duration"])
         elif lap_preset == "last":
             chosen = max(valid_laps, key=lambda l: l["lap_number"])
         elif lap_preset == "first":
-            # Skip lap 1 if there's a lap 2 (lap 1 is often an out-lap)
             by_num = sorted(valid_laps, key=lambda l: l["lap_number"])
             chosen = by_num[1] if len(by_num) > 1 and by_num[0]["lap_number"] == 1 else by_num[0]
         else:
@@ -1157,19 +1105,37 @@ class LiveTimingFacade:
         lap_start_dt = datetime.fromisoformat(chosen["date_start"])
         if lap_start_dt.tzinfo is None:
             lap_start_dt = lap_start_dt.replace(tzinfo=timezone.utc)
+        lap_end_dt = lap_start_dt + timedelta(seconds=lap_duration)
 
-        # Time offsets relative to session start
-        t_start = (lap_start_dt - start_dt).total_seconds()
-        t_end = t_start + lap_duration
+        date_gte = lap_start_dt.isoformat()
+        date_lte = lap_end_dt.isoformat()
 
-        # Fetch car_data and locations for this time window
-        car_rows = get_car_data(session_key, driver_number, t_start, t_end)
-        loc_rows = get_driver_locations(session_key, driver_number, t_start, t_end)
+        try:
+            car_raw, loc_raw = await asyncio.gather(
+                self._openf1.get_car_data(session_key, driver_number, date_gte=date_gte, date_lte=date_lte),
+                self._openf1.get_locations(session_key, driver_number, date_gte=date_gte, date_lte=date_lte),
+            )
+        except Exception:
+            return {"error": "Failed to fetch telemetry"}
 
-        if not car_rows:
+        if not car_raw:
             return {"error": "No telemetry for this lap"}
 
-        # Compute cumulative distance from location data
+        def to_t(entry: dict) -> float:
+            date = entry.get("date", "")
+            if not date:
+                return 0.0
+            dt = datetime.fromisoformat(date)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return (dt - lap_start_dt).total_seconds()
+
+        car_rows = [{"t": to_t(e), "speed": e.get("speed") or 0,
+                     "throttle": e.get("throttle") or 0, "brake": e.get("brake") or 0}
+                    for e in car_raw]
+        loc_rows = [{"t": to_t(e), "x": e.get("x") or 0, "y": e.get("y") or 0}
+                    for e in loc_raw]
+
         cum_dist = [0.0]
         for i in range(1, len(loc_rows)):
             dx = loc_rows[i]["x"] - loc_rows[i - 1]["x"]
@@ -1177,12 +1143,9 @@ class LiveTimingFacade:
             cum_dist.append(cum_dist[-1] + math.sqrt(dx * dx + dy * dy))
 
         total_dist = cum_dist[-1] if cum_dist[-1] > 0 else 1.0
-
-        # Build a time → distance_pct lookup from locations
         loc_times = [row["t"] for row in loc_rows]
         loc_dist_pct = [d / total_dist * 100.0 for d in cum_dist]
 
-        # Generic linear interpolation helper
         def interp1d(xs: list, ys: list, x: float) -> float:
             if not xs:
                 return 0.0
@@ -1203,16 +1166,11 @@ class LiveTimingFacade:
         # Compute distance_pct for each car_data point, then resample onto a
         # fixed 0.5% distance grid. Both drivers always output [0.0, 0.5, ...,
         # 100.0] so the frontend Map merge produces combined rows (not alternating).
-        raw_dist_times = [t - t_start for t in loc_times]
-        car_dists = [
-            interp1d(raw_dist_times, loc_dist_pct, row["t"] - t_start)
-            for row in car_rows
-        ]
-        raw_speed = [row["speed"] or 0 for row in car_rows]
-        raw_throttle = [row["throttle"] or 0 for row in car_rows]
-        raw_brake = [row["brake"] or 0 for row in car_rows]
+        car_dists = [interp1d(loc_times, loc_dist_pct, row["t"]) for row in car_rows]
+        raw_speed = [row["speed"] for row in car_rows]
+        raw_throttle = [row["throttle"] for row in car_rows]
+        raw_brake = [row["brake"] for row in car_rows]
 
-        # Sort by distance in case GPS data is non-monotonic
         combined = sorted(zip(car_dists, raw_speed, raw_throttle, raw_brake))
         car_dists = [p[0] for p in combined]
         raw_speed = [p[1] for p in combined]
@@ -1220,11 +1178,7 @@ class LiveTimingFacade:
         raw_brake = [p[3] for p in combined]
 
         STEP = 0.5
-        dist_pct_out = []
-        speed_out = []
-        throttle_out = []
-        brake_out = []
-
+        dist_pct_out, speed_out, throttle_out, brake_out = [], [], [], []
         d = 0.0
         while d <= 100.0 + 1e-9:
             ds = round(d, 1)
@@ -1234,7 +1188,6 @@ class LiveTimingFacade:
             brake_out.append(round(interp1d(car_dists, raw_brake, ds)))
             d += STEP
 
-        # Format lap time as "M:SS.mmm"
         mins = int(lap_duration // 60)
         secs = lap_duration - mins * 60
         lap_time_str = f"{mins}:{secs:06.3f}"
