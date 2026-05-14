@@ -49,6 +49,74 @@ function mergeChannels(
 
 const SYNC_ID = 'telemetry-compare'
 
+// Simultaneous throttle+brake = probable 2026-style harvest braking
+const HARVEST_THR = 30
+const HARVEST_BRK = 15
+
+function computeHarvestRanges(
+  data: ChartRow[],
+  thrKey: 'thrA' | 'thrB',
+  brkKey: 'brkA' | 'brkB',
+): { x1: number; x2: number }[] {
+  const ranges: { x1: number; x2: number }[] = []
+  let start: number | null = null
+  for (const row of data) {
+    const harvesting = (row[thrKey] ?? 0) >= HARVEST_THR && (row[brkKey] ?? 0) >= HARVEST_BRK
+    if (harvesting && start === null) {
+      start = row.distance
+    } else if (!harvesting && start !== null) {
+      ranges.push({ x1: start, x2: row.distance })
+      start = null
+    }
+  }
+  if (start !== null && data.length > 0) {
+    ranges.push({ x1: start, x2: data[data.length - 1].distance })
+  }
+  return ranges
+}
+
+// Recharts chart area: YAxis width=32, right margin=8 — harvest bars must match
+const CHART_LEFT = 32
+const CHART_RIGHT = 8
+
+function HarvestBar({
+  ranges,
+  color,
+  abbr,
+  dashed,
+}: {
+  ranges: { x1: number; x2: number }[]
+  color: string
+  abbr: string
+  dashed?: boolean
+}) {
+  return (
+    <div className="flex items-center gap-0" style={{ paddingLeft: CHART_LEFT, paddingRight: CHART_RIGHT }}>
+      <div className="relative flex-1 h-3.5 bg-white/5 rounded overflow-hidden">
+        {ranges.map((r, i) => (
+          <div
+            key={i}
+            className="absolute top-0 bottom-0"
+            style={{
+              left: `${r.x1}%`,
+              width: `${Math.max(r.x2 - r.x1, 0.5)}%`,
+              backgroundColor: color,
+              opacity: 0.6,
+            }}
+          />
+        ))}
+        <span
+          className="absolute left-1.5 top-0 bottom-0 flex items-center text-[8px] font-mono z-10"
+          style={{ color, mixBlendMode: 'screen' }}
+        >
+          {abbr}
+          {dashed && <span className="ml-0.5 opacity-60">- -</span>}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function Panel({
   data,
   dataKeyA,
@@ -164,6 +232,22 @@ export function TelemetryChart({ driverA, driverB }: TelemetryChartProps) {
       <Panel data={data} dataKeyA="speedA" dataKeyB="speedB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="SPEED" domain={[0, 350]} unit="km/h" />
       <Panel data={data} dataKeyA="thrA" dataKeyB="thrB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="THROTTLE" domain={[0, 100]} unit="%" />
       <Panel data={data} dataKeyA="brkA" dataKeyB="brkB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="BRAKE" domain={[0, 100]} unit="%" />
+
+      {/* Harvest zone indicator — only rendered when the pattern is actually detected */}
+      {(() => {
+        const harvestA = abbrA ? computeHarvestRanges(data, 'thrA', 'brkA') : []
+        const harvestB = abbrB ? computeHarvestRanges(data, 'thrB', 'brkB') : []
+        if (!harvestA.length && !harvestB.length) return null
+        return (
+          <div className="pt-1 space-y-1">
+            <span className="text-[9px] font-mono text-text-tertiary tracking-wider">
+              HARVEST BRAKING <span className="text-text-tertiary/50">(thr≥{HARVEST_THR}% + brk≥{HARVEST_BRK}%)</span>
+            </span>
+            {harvestA.length > 0 && <HarvestBar ranges={harvestA} color={colorA} abbr={abbrA} />}
+            {harvestB.length > 0 && <HarvestBar ranges={harvestB} color={colorB} abbr={abbrB} dashed />}
+          </div>
+        )
+      })()}
 
       {/* Distance axis label */}
       <div className="flex justify-between text-[8px] font-mono text-text-tertiary px-8">
