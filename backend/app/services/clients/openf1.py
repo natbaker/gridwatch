@@ -12,24 +12,28 @@ class OpenF1Client:
         self._fallback = fallback_client
 
     async def _get(self, path: str, params: dict | None = None) -> list[dict]:
-        result = await self._fetch(self._http, path, params)
+        result = await self._fetch(self._http, path, params, is_fallback=False)
         if not result and self._fallback:
-            logger.debug(f"Local OpenF1 returned empty for {path}, trying fallback")
-            result = await self._fetch(self._fallback, path, params)
+            logger.debug("Local OpenF1 empty for %s, trying fallback", path)
+            result = await self._fetch(self._fallback, path, params, is_fallback=True)
         return result
 
-    async def _fetch(self, client: httpx.AsyncClient, path: str, params: dict | None) -> list[dict]:
-        for attempt in range(4):
+    async def _fetch(self, client: httpx.AsyncClient, path: str, params: dict | None, is_fallback: bool = False) -> list[dict]:
+        attempts = 1 if is_fallback else 4
+        for attempt in range(attempts):
             resp = await client.get(path, params=params)
             if resp.status_code == 404:
                 return []
             if resp.status_code == 429:
+                if is_fallback:
+                    logger.debug("Fallback rate limited on %s", path)
+                    return []
                 wait = (attempt + 1) * 5
-                logger.warning(f"Rate limited on {path}, retrying in {wait}s...")
+                logger.warning("Rate limited on %s, retrying in %ds...", path, wait)
                 await asyncio.sleep(wait)
                 continue
             if resp.status_code == 401:
-                logger.warning(f"Unauthorized on {path} (API locked during live session)")
+                logger.warning("Unauthorized on %s (API locked during live session)", path)
                 return []
             resp.raise_for_status()
             data = resp.json()
@@ -37,7 +41,7 @@ class OpenF1Client:
                 return []
             return data
 
-        logger.warning(f"Failed after retries: {path}")
+        logger.warning("Failed after retries: %s", path)
         return []
 
     async def get_latest_sessions(self) -> list[dict]:
