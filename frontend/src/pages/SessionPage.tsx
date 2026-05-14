@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLiveTiming } from '../hooks/useLiveTiming'
 import { useNextSession } from '../hooks/useNextSession'
 import { useRaceResults } from '../hooks/useRaceResults'
+import { useSchedule } from '../hooks/useSchedule'
 import { useReplay } from '../hooks/useReplay'
 import { useDriverFollow } from '../hooks/useDriverFollow'
 import { useSeason } from '../hooks/useSeason'
@@ -36,6 +37,17 @@ export function SessionPage() {
   const sessionTypeParam = searchParams.get('session_type') ?? 'Race'
 
   const { data: scheduleData } = useNextSession()
+  const { data: fullSchedule } = useSchedule()
+
+  // Derive prev/next non-cancelled races for navigation
+  const activeRaces = (fullSchedule?.races ?? []).filter(r => !r.is_cancelled)
+  const currentIdx = roundParam
+    ? activeRaces.findIndex(r => r.round === roundParam)
+    : -1
+  const prevRace = currentIdx > 0 ? activeRaces[currentIdx - 1] : null
+  const nextRace = currentIdx >= 0 && currentIdx < activeRaces.length - 1 ? activeRaces[currentIdx + 1] : null
+  const raceNavUrl = (r: typeof activeRaces[0]) =>
+    `/race/${r.round}?race_date=${r.race_date.slice(0, 10)}&session_type=${encodeURIComponent(sessionTypeParam)}`
 
   // Fetch all sessions for this weekend (for session switcher)
   const { data: roundSessionsData } = useQuery({
@@ -291,9 +303,31 @@ export function SessionPage() {
 
   return (
     <div className="max-w-[1400px] mx-auto px-5 py-6 space-y-4 animate-fade-in-up">
-      <Link to={roundPath ? '/calendar' : '/'} className="text-sm text-accent hover:underline inline-block">
-        ← {roundPath ? 'Calendar' : 'Dashboard'}
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link to={roundPath ? '/calendar' : '/'} className="text-sm text-accent hover:underline">
+          ← {roundPath ? 'Calendar' : 'Dashboard'}
+        </Link>
+        {(prevRace || nextRace) && (
+          <div className="flex items-center gap-1">
+            {prevRace ? (
+              <Link
+                to={raceNavUrl(prevRace)}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono text-text-tertiary hover:text-text-primary bg-bg-card border border-border rounded-lg transition-colors"
+              >
+                ← {prevRace.name.replace(' Grand Prix', ' GP')}
+              </Link>
+            ) : <div />}
+            {nextRace && (
+              <Link
+                to={raceNavUrl(nextRace)}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono text-text-tertiary hover:text-text-primary bg-bg-card border border-border rounded-lg transition-colors"
+              >
+                {nextRace.name.replace(' Grand Prix', ' GP')} →
+              </Link>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Header */}
       <div className="relative overflow-hidden bg-bg-card border border-border rounded-xl p-4 sm:p-5">
