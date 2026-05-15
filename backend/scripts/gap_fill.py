@@ -7,9 +7,8 @@ Env vars:
   MONGO_CONNECTION_STRING  default: mongodb://localhost:27017
   OPENF1_DB_NAME           default: openf1-livetiming
   OPENF1_SOURCE_URL        default: https://api.openf1.org/v1
+  SKIP_TELEMETRY           set to "1" to skip car_data/location (faster, ~2h saved)
 """
-import csv
-import io
 import json
 import logging
 import os
@@ -22,14 +21,16 @@ from pymongo import MongoClient
 MONGO_URL = os.getenv("MONGO_CONNECTION_STRING", "mongodb://localhost:27017")
 DB_NAME = os.getenv("OPENF1_DB_NAME", "openf1-livetiming")
 SOURCE_URL = os.getenv("OPENF1_SOURCE_URL", "https://api.openf1.org/v1").rstrip("/")
+SKIP_TELEMETRY = os.getenv("SKIP_TELEMETRY", "") == "1"
 
-# car_data and location are excluded: openf1.org rejects bulk CSV exports
-# for these (422). They are captured in real-time by ingest-realtime for
-# future sessions, and fetched on-demand from openf1.org for older ones.
-TIMING_ENDPOINTS = [
+# Endpoints that support bulk CSV export per session_key.
+BULK_ENDPOINTS = [
     "drivers", "intervals", "laps",
     "pit", "position", "race_control", "stints", "team_radio", "weather",
 ]
+# car_data and location require per-driver JSON fetches (bulk CSV returns 422).
+PER_DRIVER_ENDPOINTS = ["car_data", "location"]
+
 YEARS = [2023, 2024, 2025, 2026]
 RATE_DELAY = 0.4  # ~25 req/10s, under the 30/10s hosted limit
 
@@ -49,7 +50,8 @@ def fetch_json(path: str, params: dict) -> list:
         raise
 
 
-def fetch_csv(path: str, params: dict) -> list[dict]:
+def fetch_csv_raw(path: str, params: dict) -> bytes:
+    import csv, io
     qs = "&".join(f"{k}={v}" for k, v in {**params, "csv": "true"}.items())
     url = f"{SOURCE_URL}/{path}?{qs}"
     try:
@@ -76,19 +78,40 @@ def parse_row(row: dict) -> dict:
     return {k: coerce(v) for k, v in row.items()}
 
 
-def import_session(db, session_key: int):
-    for endpoint in TIMING_ENDPOINTS:
-        rows = fetch_csv(endpoint, {"session_key": session_key})
+def insert(db, collection: str, docs: list):
+    if not docs:
+        return
+    try:
+        db[collection].insert_many(docs, ordered=False)
+    except Exception:
+        pass  # duplicate key errors on retry — safe to ignore
+
+
+def import_bulk(db, session_key: int):
+    for endpoint in BULK_ENDPOINTS:
+        rows = fetch_csv_raw(endpoint, {"session_key": session_key})
         if rows:
             docs = [parse_row(r) for r in rows]
-            try:
-                db[endpoint].insert_many(docs, ordered=False)
-            except Exception:
-                pass  # duplicate key errors on retry — safe to ignore
+            insert(db, endpoint, docs)
             log.info(f"  {endpoint}: {len(docs)}")
         time.sleep(RATE_DELAY)
 
-    db["_imported_sessions"].insert_one({"session_key": session_key})
+
+def import_telemetry(db, session_key: int):
+    driver_docs = fetch_json("drivers", {"session_key": session_key})
+    driver_numbers = [d["driver_number"] for d in driver_docs if d.get("driver_number")]
+    time.sleep(RATE_DELAY)
+
+    for endpoint in PER_DRIVER_ENDPOINTS:
+        total = 0
+        for driver_number in driver_numbers:
+            rows = fetch_json(endpoint, {"session_key": session_key, "driver_number": driver_number})
+            if rows:
+                insert(db, endpoint, rows)
+                total += len(rows)
+            time.sleep(RATE_DELAY)
+        if total:
+            log.info(f"  {endpoint}: {total}")
 
 
 def main():
@@ -101,17 +124,41 @@ def main():
         remote_keys.extend(s["session_key"] for s in sessions if s.get("session_key"))
         time.sleep(RATE_DELAY)
 
-    imported = set(db["_imported_sessions"].distinct("session_key"))
-    missing = [k for k in remote_keys if k not in imported]
+    tracking = {
+        doc["session_key"]: doc
+        for doc in db["_imported_sessions"].find({}, {"session_key": 1, "has_telemetry": 1})
+    }
 
-    if not missing:
-        log.info("No missing sessions — nothing to import.")
+    missing_bulk = [k for k in remote_keys if k not in tracking]
+    missing_telemetry = (
+        [] if SKIP_TELEMETRY
+        else [k for k in remote_keys if k in tracking and not tracking[k].get("has_telemetry")]
+    )
+
+    if not missing_bulk and not missing_telemetry:
+        log.info("Nothing to import.")
         return
 
-    log.info(f"Importing {len(missing)} sessions...")
-    for session_key in missing:
-        log.info(f"Session {session_key}")
-        import_session(db, session_key)
+    if missing_bulk:
+        log.info(f"Importing {len(missing_bulk)} new sessions...")
+        for session_key in missing_bulk:
+            log.info(f"Session {session_key}")
+            import_bulk(db, session_key)
+            if not SKIP_TELEMETRY:
+                import_telemetry(db, session_key)
+                db["_imported_sessions"].insert_one({"session_key": session_key, "has_telemetry": True})
+            else:
+                db["_imported_sessions"].insert_one({"session_key": session_key, "has_telemetry": False})
+
+    if missing_telemetry:
+        log.info(f"Backfilling telemetry for {len(missing_telemetry)} sessions...")
+        for session_key in missing_telemetry:
+            log.info(f"Telemetry {session_key}")
+            import_telemetry(db, session_key)
+            db["_imported_sessions"].update_one(
+                {"session_key": session_key},
+                {"$set": {"has_telemetry": True}},
+            )
 
     log.info("Done.")
     mongo.close()
