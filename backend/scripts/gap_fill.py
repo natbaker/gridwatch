@@ -38,29 +38,34 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
 
 
+def _get(url: str, timeout: int) -> bytes:
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 204, 422):
+                return b""
+            if e.code == 429:
+                wait = (attempt + 1) * 30
+                log.info(f"Rate limited, waiting {wait}s...")
+                time.sleep(wait)
+                continue
+            raise
+    return b""
+
+
 def fetch_json(path: str, params: dict) -> list:
     qs = "&".join(f"{k}={v}" for k, v in params.items())
-    url = f"{SOURCE_URL}/{path}?{qs}"
-    try:
-        with urllib.request.urlopen(url, timeout=60) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        if e.code in (404, 204):
-            return []
-        raise
+    raw = _get(f"{SOURCE_URL}/{path}?{qs}", timeout=60)
+    return json.loads(raw) if raw else []
 
 
-def fetch_csv_raw(path: str, params: dict) -> bytes:
+def fetch_csv_raw(path: str, params: dict) -> list[dict]:
     import csv, io
     qs = "&".join(f"{k}={v}" for k, v in {**params, "csv": "true"}.items())
-    url = f"{SOURCE_URL}/{path}?{qs}"
-    try:
-        with urllib.request.urlopen(url, timeout=300) as r:
-            return list(csv.DictReader(io.StringIO(r.read().decode())))
-    except urllib.error.HTTPError as e:
-        if e.code in (404, 204, 422):
-            return []
-        raise
+    raw = _get(f"{SOURCE_URL}/{path}?{qs}", timeout=300)
+    return list(csv.DictReader(io.StringIO(raw.decode()))) if raw else []
 
 
 def coerce(val: str):
