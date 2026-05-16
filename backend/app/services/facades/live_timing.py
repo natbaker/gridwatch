@@ -727,15 +727,18 @@ class LiveTimingFacade:
 
     async def _get_driver_info(self, session_key: int) -> dict[int, dict]:
         """Get driver abbreviations and team colors, cached."""
+        from app.services import mongo_direct
         cache_key = f"driver_info_{session_key}"
         cached = self._cache.get(cache_key)
         if cached:
             return cached
 
-        try:
-            drivers_raw = await self._openf1.get_drivers(session_key)
-        except Exception:
-            drivers_raw = []
+        drivers_raw = await mongo_direct.query_session("drivers", session_key)
+        if not drivers_raw:
+            try:
+                drivers_raw = await self._openf1.get_drivers(session_key)
+            except Exception:
+                drivers_raw = []
 
         info: dict[int, dict] = {}
         for d in drivers_raw:
@@ -773,13 +776,21 @@ class LiveTimingFacade:
 
         start_dt = datetime.fromisoformat(data_start)
 
-        # Fetch all replay data in parallel
+        # Fetch all replay data in parallel.
+        # Use direct MongoDB queries to bypass openf1-api's _key deduplication, which
+        # collapses all gap_fill-imported documents (no _key field) to a single result.
+        from app.services import mongo_direct
+
         async def _safe(coro):
             try:
                 return await coro
             except Exception as e:
                 logger.warning(f"Fetch failed: {e}")
                 return []
+
+        async def _collection(name: str, api_fn) -> list[dict]:
+            docs = await mongo_direct.query_session(name, session_key)
+            return docs if docs else await _safe(api_fn())
 
         (
             positions_raw,
@@ -789,12 +800,12 @@ class LiveTimingFacade:
             weather_raw,
             pits_raw,
         ) = await asyncio.gather(
-            _safe(self._openf1.get_positions(session_key)),
-            _safe(self._openf1.get_intervals(session_key)),
-            _safe(self._openf1.get_race_control(session_key)),
-            _safe(self._openf1.get_laps(session_key)),
-            _safe(self._openf1.get_weather(session_key)),
-            _safe(self._openf1.get_pit_stops(session_key)),
+            _collection("position", lambda: self._openf1.get_positions(session_key)),
+            _collection("intervals", lambda: self._openf1.get_intervals(session_key)),
+            _collection("race_control", lambda: self._openf1.get_race_control(session_key)),
+            _collection("laps", lambda: self._openf1.get_laps(session_key)),
+            _collection("weather", lambda: self._openf1.get_weather(session_key)),
+            _collection("pit", lambda: self._openf1.get_pit_stops(session_key)),
         )
 
         position_events = []
@@ -951,10 +962,12 @@ class LiveTimingFacade:
             })
 
         radio_events = []
-        try:
-            radio_raw = await self._openf1.get_team_radio(session_key)
-        except Exception:
-            radio_raw = []
+        radio_raw = await mongo_direct.query_session("team_radio", session_key)
+        if not radio_raw:
+            try:
+                radio_raw = await self._openf1.get_team_radio(session_key)
+            except Exception:
+                radio_raw = []
         for r in radio_raw:
             date = r.get("date")
             num = r.get("driver_number")
