@@ -71,6 +71,16 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
   const bufferEndRef = useRef(0)
   const fetchingRef = useRef(false)
 
+  // Reset all playback state when session changes
+  useEffect(() => {
+    setCurrentTime(0)
+    setIsPlaying(false)
+    setSpeed(1)
+    positionsRef.current = []
+    bufferEndRef.current = 0
+    fetchingRef.current = false
+  }, [sessionKey])
+
   const { data: info } = useQuery({
     queryKey: ['replayInfo', sessionKey],
     queryFn: () => api.getReplayInfo(sessionKey!),
@@ -94,12 +104,6 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
   const earliestEvent = Math.min(posT, ivT)
   const firstEventTime = earliestEvent === Infinity ? 0 : Math.max(0, earliestEvent - 2)
 
-  // Jump to first event time when info loads
-  useEffect(() => {
-    if (firstEventTime > 0 && currentTime === 0) {
-      setCurrentTime(firstEventTime)
-    }
-  }, [firstEventTime])
 
   // Fetch a chunk of position data
   const fetchChunk = useCallback(async (fromSeconds: number) => {

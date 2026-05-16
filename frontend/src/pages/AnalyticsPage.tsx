@@ -15,13 +15,38 @@ const TOOLTIP_ITEM_STYLE = { color: '#ddd', padding: '1px 0' }
 
 type ChartTab = 'drivers' | 'constructors' | 'positions' | 'predictions'
 
-function PointsChart({ drivers, rounds }: { drivers: DriverSeries[]; rounds: { round: number; name: string }[] }) {
-  const [highlighted, setHighlighted] = useState<string | null>(null)
-  const top10 = drivers.slice(0, 10)
+function DriverLegend({ drivers, highlighted, onHighlight }: {
+  drivers: DriverSeries[]
+  highlighted: string | null
+  onHighlight: (code: string | null) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 mb-4">
+      {drivers.map(d => (
+        <button
+          key={d.code}
+          onMouseEnter={() => onHighlight(d.code)}
+          onMouseLeave={() => onHighlight(null)}
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono hover:bg-bg-elevated transition-colors"
+          style={{ opacity: highlighted && highlighted !== d.code ? 0.4 : 1 }}
+        >
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: d.team_color }} />
+          {d.code}
+        </button>
+      ))}
+    </div>
+  )
+}
 
+function PointsChart({ drivers, rounds, highlighted, onHighlight }: {
+  drivers: DriverSeries[]
+  rounds: { round: number; name: string }[]
+  highlighted: string | null
+  onHighlight: (code: string | null) => void
+}) {
   const chartData = rounds.map(r => {
     const entry: Record<string, unknown> = { round: `R${r.round}`, name: r.name }
-    for (const d of top10) {
+    for (const d of drivers) {
       const prog = d.progression.find(p => p.round === r.round)
       entry[d.code] = prog?.points ?? null
     }
@@ -30,19 +55,7 @@ function PointsChart({ drivers, rounds }: { drivers: DriverSeries[]; rounds: { r
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2 mb-4">
-        {top10.map(d => (
-          <button
-            key={d.code}
-            onMouseEnter={() => setHighlighted(d.code)}
-            onMouseLeave={() => setHighlighted(null)}
-            className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono hover:bg-bg-elevated transition-colors"
-          >
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: d.team_color }} />
-            {d.code}
-          </button>
-        ))}
-      </div>
+      <DriverLegend drivers={drivers} highlighted={highlighted} onHighlight={onHighlight} />
       <ResponsiveContainer width="100%" height={400}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -50,10 +63,10 @@ function PointsChart({ drivers, rounds }: { drivers: DriverSeries[]; rounds: { r
           <YAxis tick={{ fontSize: 10, fill: '#888' }} />
           <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE}
             labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ''} />
-          {top10.map(d => (
+          {drivers.map(d => (
             <Line key={d.code} type="monotone" dataKey={d.code} stroke={d.team_color}
               strokeWidth={highlighted === d.code ? 3 : highlighted ? 1 : 2}
-              strokeOpacity={highlighted && highlighted !== d.code ? 0.2 : 1}
+              strokeOpacity={highlighted && highlighted !== d.code ? 0.15 : 1}
               dot={false} connectNulls />
           ))}
         </LineChart>
@@ -62,7 +75,12 @@ function PointsChart({ drivers, rounds }: { drivers: DriverSeries[]; rounds: { r
   )
 }
 
-function ConstructorChart({ constructors, rounds }: { constructors: ConstructorSeries[]; rounds: { round: number; name: string }[] }) {
+function ConstructorChart({ constructors, rounds, highlighted, onHighlight }: {
+  constructors: ConstructorSeries[]
+  rounds: { round: number; name: string }[]
+  highlighted: string | null
+  onHighlight: (code: string | null) => void
+}) {
   const chartData = rounds.map(r => {
     const entry: Record<string, unknown> = { round: `R${r.round}`, name: r.name }
     for (const c of constructors) {
@@ -73,27 +91,48 @@ function ConstructorChart({ constructors, rounds }: { constructors: ConstructorS
   })
 
   return (
-    <ResponsiveContainer width="100%" height={400}>
-      <LineChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-        <XAxis dataKey="round" tick={{ fontSize: 10, fill: '#888' }} />
-        <YAxis tick={{ fontSize: 10, fill: '#888' }} />
-        <Tooltip contentStyle={TOOLTIP_STYLE}
-          labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ''} />
+    <div>
+      <div className="flex flex-wrap gap-2 mb-4">
         {constructors.map(c => (
-          <Line key={c.name} type="monotone" dataKey={c.name} stroke={c.team_color}
-            strokeWidth={2} dot={false} connectNulls />
+          <button key={c.name}
+            onMouseEnter={() => onHighlight(c.name)}
+            onMouseLeave={() => onHighlight(null)}
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono hover:bg-bg-elevated transition-colors"
+            style={{ opacity: highlighted && highlighted !== c.name ? 0.4 : 1 }}
+          >
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.team_color }} />
+            {c.name}
+          </button>
         ))}
-      </LineChart>
-    </ResponsiveContainer>
+      </div>
+      <ResponsiveContainer width="100%" height={400}>
+        <LineChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+          <XAxis dataKey="round" tick={{ fontSize: 10, fill: '#888' }} />
+          <YAxis tick={{ fontSize: 10, fill: '#888' }} />
+          <Tooltip contentStyle={TOOLTIP_STYLE}
+            labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ''} />
+          {constructors.map(c => (
+            <Line key={c.name} type="monotone" dataKey={c.name} stroke={c.team_color}
+              strokeWidth={highlighted === c.name ? 3 : highlighted ? 1 : 2}
+              strokeOpacity={highlighted && highlighted !== c.name ? 0.15 : 1}
+              dot={false} connectNulls />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
-function PositionChart({ drivers, rounds }: { drivers: DriverSeries[]; rounds: { round: number; name: string }[] }) {
-  const top10 = drivers.slice(0, 10)
+function PositionChart({ drivers, rounds, highlighted, onHighlight }: {
+  drivers: DriverSeries[]
+  rounds: { round: number; name: string }[]
+  highlighted: string | null
+  onHighlight: (code: string | null) => void
+}) {
   const chartData = rounds.map(r => {
     const entry: Record<string, unknown> = { round: `R${r.round}`, name: r.name }
-    for (const d of top10) {
+    for (const d of drivers) {
       const prog = d.progression.find(p => p.round === r.round)
       entry[d.code] = prog?.position ?? null
     }
@@ -101,19 +140,24 @@ function PositionChart({ drivers, rounds }: { drivers: DriverSeries[]; rounds: {
   })
 
   return (
-    <ResponsiveContainer width="100%" height={400}>
-      <LineChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-        <XAxis dataKey="round" tick={{ fontSize: 10, fill: '#888' }} />
-        <YAxis reversed tick={{ fontSize: 10, fill: '#888' }} domain={[1, 20]} />
-        <Tooltip contentStyle={TOOLTIP_STYLE}
-          labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ''} />
-        {top10.map(d => (
-          <Line key={d.code} type="monotone" dataKey={d.code} stroke={d.team_color}
-            strokeWidth={1.5} dot={{ r: 2, fill: d.team_color }} connectNulls />
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
+    <div>
+      <DriverLegend drivers={drivers} highlighted={highlighted} onHighlight={onHighlight} />
+      <ResponsiveContainer width="100%" height={400}>
+        <LineChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+          <XAxis dataKey="round" tick={{ fontSize: 10, fill: '#888' }} />
+          <YAxis reversed tick={{ fontSize: 10, fill: '#888' }} domain={[1, 20]} />
+          <Tooltip contentStyle={TOOLTIP_STYLE}
+            labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ''} />
+          {drivers.map(d => (
+            <Line key={d.code} type="monotone" dataKey={d.code} stroke={d.team_color}
+              strokeWidth={highlighted === d.code ? 2.5 : highlighted ? 1 : 1.5}
+              strokeOpacity={highlighted && highlighted !== d.code ? 0.15 : 1}
+              dot={{ r: highlighted === d.code ? 3 : 2, fill: d.team_color }} connectNulls />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -132,6 +176,7 @@ function PredictionsPanel() {
 
   const hasProjections = data.projections && data.projections.length > 0
   const hasChampProbs = data.championship_probabilities && data.championship_probabilities.length > 0
+  const hasConstructorProbs = data.constructor_championship_probabilities && data.constructor_championship_probabilities.length > 0
   const hasForm = data.form_guide && data.form_guide.length > 0
   const hasTeammate = data.teammate_battles && data.teammate_battles.length > 0
 
@@ -176,6 +221,42 @@ function PredictionsPanel() {
                   {d.p10_points !== undefined && (
                     <span className="hidden sm:inline">Range: {d.p10_points as number}–{d.p90_points as number}</span>
                   )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Constructor Championship Probabilities */}
+      {hasConstructorProbs && (
+        <div className="bg-bg-card border border-border rounded-xl p-4">
+          <h3 className="text-xs text-text-secondary tracking-[2px] mb-1">CONSTRUCTOR CHAMPIONSHIP PROBABILITY</h3>
+          <p className="text-[10px] text-text-tertiary mb-4">Monte Carlo simulation (10,000 runs)</p>
+          <div className="space-y-3">
+            {data.constructor_championship_probabilities.filter((c: Record<string, unknown>) => (c.win_probability as number) > 0.5).map((c: Record<string, unknown>, i: number) => (
+              <div key={i} className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-5 rounded-full" style={{ backgroundColor: c.team_color as string }} />
+                    <span className="font-mono text-xs font-semibold">{c.name as string}</span>
+                  </div>
+                  <span className="font-mono text-sm font-bold" style={{ color: c.team_color as string }}>
+                    {(c.win_probability as number).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex gap-1 items-center">
+                  <div className="flex-1 bg-bg-elevated rounded-full h-3 overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${c.win_probability as number}%`, backgroundColor: c.team_color as string, opacity: 0.8 }} />
+                  </div>
+                  <span className="text-[9px] text-text-tertiary font-mono w-32 text-right">
+                    {c.p10_points as number}–{c.p90_points as number} pts range
+                  </span>
+                </div>
+                <div className="flex gap-4 text-[10px] text-text-tertiary font-mono pl-3">
+                  <span>Now: {c.current_points as number}pts</span>
+                  <span>Avg proj: {c.avg_projected_points as number}pts</span>
                 </div>
               </div>
             ))}
@@ -354,6 +435,7 @@ export function AnalyticsPage() {
   const { season } = useSeason()
   const { data, isLoading, isError, refetch } = useSeasonProgression()
   const [tab, setTab] = useState<ChartTab>('drivers')
+  const [highlighted, setHighlighted] = useState<string | null>(null)
 
   if (isLoading) return (
     <div className="max-w-[1280px] mx-auto px-5 py-6">
@@ -412,9 +494,9 @@ export function AnalyticsPage() {
 
       {tab !== 'predictions' && (
         <div className="bg-bg-card border border-border rounded-xl p-4 sm:p-5">
-          {tab === 'drivers' && <PointsChart drivers={data.drivers} rounds={data.rounds} />}
-          {tab === 'constructors' && <ConstructorChart constructors={data.constructors} rounds={data.rounds} />}
-          {tab === 'positions' && <PositionChart drivers={data.drivers} rounds={data.rounds} />}
+          {tab === 'drivers' && <PointsChart drivers={data.drivers} rounds={data.rounds} highlighted={highlighted} onHighlight={setHighlighted} />}
+          {tab === 'constructors' && <ConstructorChart constructors={data.constructors} rounds={data.rounds} highlighted={highlighted} onHighlight={setHighlighted} />}
+          {tab === 'positions' && <PositionChart drivers={data.drivers} rounds={data.rounds} highlighted={highlighted} onHighlight={setHighlighted} />}
         </div>
       )}
 
@@ -423,12 +505,18 @@ export function AnalyticsPage() {
       {/* Driver stats grid */}
       {tab === 'drivers' && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {data.drivers.slice(0, 10).map(d => {
+          {data.drivers.map(d => {
             const wins = d.progression.filter(r => r.position === 1).length
             const podiums = d.progression.filter(r => r.position <= 3).length
             const dnfs = d.progression.filter(r => r.dnf).length
+            const isHL = highlighted === d.code
             return (
-              <div key={d.code} className="bg-bg-card border border-border rounded-xl p-3">
+              <div key={d.code}
+                className={`bg-bg-card border rounded-xl p-3 transition-colors cursor-default ${isHL ? 'border-text-secondary' : 'border-border'}`}
+                onMouseEnter={() => setHighlighted(d.code)}
+                onMouseLeave={() => setHighlighted(null)}
+                style={{ opacity: highlighted && !isHL ? 0.5 : 1 }}
+              >
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-1 h-6 rounded-full" style={{ backgroundColor: d.team_color }} />
                   <div>
@@ -466,13 +554,19 @@ export function AnalyticsPage() {
       {tab === 'constructors' && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {data.constructors.map(c => {
-            const drivers = data.drivers.filter(d => d.team === c.name)
-            const totalWins = drivers.reduce((sum, d) => sum + d.progression.filter(r => r.position === 1).length, 0)
-            const totalPodiums = drivers.reduce((sum, d) => sum + d.progression.filter(r => r.position <= 3).length, 0)
+            const cDrivers = data.drivers.filter(d => d.team === c.name)
+            const totalWins = cDrivers.reduce((sum, d) => sum + d.progression.filter(r => r.position === 1).length, 0)
+            const totalPodiums = cDrivers.reduce((sum, d) => sum + d.progression.filter(r => r.position <= 3).length, 0)
             const races = c.progression.length
             const ptsPerRace = races > 0 ? (c.total_points / races).toFixed(1) : '0'
+            const isHL = highlighted === c.name
             return (
-              <div key={c.name} className="bg-bg-card border border-border rounded-xl p-3">
+              <div key={c.name}
+                className={`bg-bg-card border rounded-xl p-3 transition-colors cursor-default ${isHL ? 'border-text-secondary' : 'border-border'}`}
+                onMouseEnter={() => setHighlighted(c.name)}
+                onMouseLeave={() => setHighlighted(null)}
+                style={{ opacity: highlighted && !isHL ? 0.5 : 1 }}
+              >
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-1 h-6 rounded-full" style={{ backgroundColor: c.team_color }} />
                   <span className="font-mono text-xs font-semibold truncate">{c.name}</span>
@@ -495,7 +589,7 @@ export function AnalyticsPage() {
                     <span className="font-mono">{totalPodiums}</span>
                   </div>
                   <div className="text-[10px] text-text-tertiary pt-1 border-t border-border/50">
-                    {drivers.map(d => d.code).join(' · ')}
+                    {cDrivers.map(d => d.code).join(' · ')}
                   </div>
                 </div>
               </div>
@@ -507,7 +601,7 @@ export function AnalyticsPage() {
       {/* Position stats grid */}
       {tab === 'positions' && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {data.drivers.slice(0, 10).map(d => {
+          {data.drivers.map(d => {
             const races = d.progression.length
             const avgFinish = races > 0 ? (d.progression.reduce((s, r) => s + r.position, 0) / races).toFixed(1) : '-'
             const bestFinish = races > 0 ? Math.min(...d.progression.map(r => r.position)) : '-'
@@ -518,8 +612,14 @@ export function AnalyticsPage() {
             const gainNum = avgGain.length > 0
               ? avgGain.reduce((s, r) => s + (r.positions_gained ?? 0), 0) / avgGain.length
               : 0
+            const isHL = highlighted === d.code
             return (
-              <div key={d.code} className="bg-bg-card border border-border rounded-xl p-3">
+              <div key={d.code}
+                className={`bg-bg-card border rounded-xl p-3 transition-colors cursor-default ${isHL ? 'border-text-secondary' : 'border-border'}`}
+                onMouseEnter={() => setHighlighted(d.code)}
+                onMouseLeave={() => setHighlighted(null)}
+                style={{ opacity: highlighted && !isHL ? 0.5 : 1 }}
+              >
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-1 h-6 rounded-full" style={{ backgroundColor: d.team_color }} />
                   <div>
@@ -542,16 +642,15 @@ export function AnalyticsPage() {
                       {gainNum > 0 ? '+' : ''}{gainStr}
                     </span>
                   </div>
-                  <div className="flex gap-1 pt-1 border-t border-border/50">
+                  {/* Race-by-race color bars — no numbers to avoid overflow on long seasons */}
+                  <div className="flex gap-px pt-1 border-t border-border/50">
                     {d.progression.map((r, i) => (
-                      <div key={i} className={`flex-1 h-4 rounded-sm text-center text-[8px] leading-4 font-mono ${
-                        r.position === 1 ? 'bg-yellow-500/30 text-yellow-400' :
-                        r.position <= 3 ? 'bg-accent/20 text-accent' :
-                        r.position <= 10 ? 'bg-bg-elevated text-text-tertiary' :
-                        'bg-bg-elevated/50 text-text-tertiary/50'
-                      }`}>
-                        {r.position}
-                      </div>
+                      <div key={i} title={`R${r.round} P${r.position}`} className={`flex-1 h-3 rounded-sm ${
+                        r.position === 1 ? 'bg-yellow-500/60' :
+                        r.position <= 3 ? 'bg-accent/50' :
+                        r.position <= 10 ? 'bg-bg-elevated' :
+                        'bg-bg-elevated/40'
+                      }`} />
                     ))}
                   </div>
                 </div>

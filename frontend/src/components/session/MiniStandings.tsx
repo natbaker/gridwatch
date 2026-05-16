@@ -8,11 +8,13 @@ export interface MiniStandingRow {
   interval: number | null
 }
 
-export function MiniStandings({ rows, followedDriver, compareDriver, onClickDriver }: {
+export function MiniStandings({ rows, followedDriver, compareDriver, onClickDriver, driversInPit, now }: {
   rows: MiniStandingRow[]
   followedDriver?: number | null
   compareDriver?: number | null
   onClickDriver?: (n: number) => void
+  driversInPit?: { driver_number: number; entry_time: number; duration: number | null }[]
+  now?: number
 }) {
   return (
     <div className="w-48 flex-shrink-0 overflow-y-auto pr-1">
@@ -46,9 +48,14 @@ export function MiniStandings({ rows, followedDriver, compareDriver, onClickDriv
                     <span className="text-[8px] text-accent font-bold tracking-wider">A</span>
                   ) : isCompare ? (
                     <span className="text-[8px] text-text-secondary font-bold tracking-wider">B</span>
-                  ) : (
-                    <span className="text-text-tertiary">{d.position === 1 ? 'LDR' : formatGap(d.interval)}</span>
-                  )}
+                  ) : (() => {
+                    const pit = driversInPit?.find(p => p.driver_number === d.driver_number)
+                    if (pit) {
+                      const elapsed = Math.max(0, (now ?? 0) - pit.entry_time)
+                      return <span className="text-yellow-400 text-[9px]">PIT {elapsed.toFixed(1)}s</span>
+                    }
+                    return <span className="text-text-tertiary">{d.position === 1 ? 'LDR' : formatGap(d.interval)}</span>
+                  })()}
                 </td>
               </tr>
             )

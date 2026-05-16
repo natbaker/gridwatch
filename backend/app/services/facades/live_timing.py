@@ -1211,11 +1211,24 @@ class LiveTimingFacade:
         secs = lap_duration - mins * 60
         lap_time_str = f"{mins}:{secs:06.3f}"
 
+        # Compute sector boundary positions as distance percentages
+        sector_markers = []
+        s1 = chosen.get("duration_sector_1")
+        s2 = chosen.get("duration_sector_2")
+        if s1 and s2 and loc_times:
+            s1_pct = interp1d(loc_times, loc_dist_pct, s1)
+            s2_pct = interp1d(loc_times, loc_dist_pct, s1 + s2)
+            sector_markers = [
+                {"pct": round(s1_pct, 1), "label": "S2"},
+                {"pct": round(s2_pct, 1), "label": "S3"},
+            ]
+
         return {
             "driver_number": driver_number,
             "lap_number": lap_number,
             "lap_time": lap_time_str,
             "lap_preset": lap_preset,
+            "sector_markers": sector_markers,
             "channels": {
                 "distance_pct": dist_pct_out,
                 "speed": speed_out,

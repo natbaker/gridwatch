@@ -169,7 +169,7 @@ export function SessionPage() {
   // ── Derive display info ──
   const session = timingData?.session
   const circuit = session?.circuit ?? resultsData?.circuit ?? replay.circuit ?? ''
-  const sessionName = session?.session_name ?? replay.sessionName ?? resultsData?.race_name ?? ''
+  const sessionName = session?.session_name ?? replay.sessionName ?? resultsData?.race_name ?? sessionTypeParam ?? ''
   const country = session?.country ?? ''
   const hasReplay = replay.totalDuration > 0
   const canReplay = isHistorical || isLive || hasReplay
@@ -254,18 +254,6 @@ export function SessionPage() {
             </p>
             {raceDate && <p className="text-[10px] text-text-tertiary mt-0.5">{raceDate}</p>}
           </div>
-          <div className="flex items-center gap-4 text-xs text-text-tertiary">
-            {replayStarted && replay.currentLap > 0 ? (
-              <span className="font-mono">LAP {replay.currentLap}{replay.totalLaps > 0 ? `/${replay.totalLaps}` : ''}</span>
-            ) : timingData && timingData.total_laps > 0 ? (
-              <span className="font-mono">LAP {timingData.total_laps}</span>
-            ) : null}
-            {timingData?.session_best_lap && (
-              <span className="font-mono">
-                FASTEST: <span className="text-purple-400">{formatLapTime(timingData.session_best_lap)}</span>
-              </span>
-            )}
-          </div>
         </div>
       </div>
 
@@ -273,7 +261,7 @@ export function SessionPage() {
       {roundParam && roundSessionsData && roundSessionsData.sessions.length > 1 && (
         <div className="flex gap-1 flex-wrap">
           {roundSessionsData.sessions.map((s) => {
-            const isActive = s.session_key === sessionKey
+            const isActive = sessionKey ? s.session_key === sessionKey : s.session_name === sessionTypeParam
             return (
               <button
                 key={s.session_key}
@@ -283,7 +271,6 @@ export function SessionPage() {
                     next.set('session_type', s.session_name)
                     return next
                   })
-                  setReplayStarted(false)
                 }}
                 className={`px-2.5 py-1 rounded text-[10px] font-mono transition-colors ${
                   isActive
@@ -343,6 +330,9 @@ export function SessionPage() {
           onToggleMute={hudEnabled ? () => follow.setRadioMuted(!follow.radioMuted) : undefined}
           replayDataStart={replay.dataStart}
           replayDuration={replay.totalDuration}
+          currentLap={replayStarted && replay.currentLap > 0 ? replay.currentLap : timingData?.total_laps ?? undefined}
+          totalLaps={replay.totalLaps > 0 ? replay.totalLaps : undefined}
+          fastestLap={timingData?.session_best_lap ?? undefined}
         />
       )}
 

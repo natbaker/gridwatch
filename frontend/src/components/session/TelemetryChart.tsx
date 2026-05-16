@@ -128,6 +128,8 @@ function Panel({
   label,
   domain,
   unit,
+  sectorMarkers,
+  isFirst,
 }: {
   data: ChartRow[]
   dataKeyA: string
@@ -139,6 +141,8 @@ function Panel({
   label: string
   domain: [number, number]
   unit: string
+  sectorMarkers?: { pct: number; label: string }[]
+  isFirst?: boolean
 }) {
   return (
     <div className="h-28">
@@ -146,7 +150,7 @@ function Panel({
         <span className="text-[9px] font-mono text-text-tertiary tracking-wider">{label}</span>
       </div>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} syncId={SYNC_ID} margin={{ top: 2, right: 8, bottom: 0, left: 0 }}>
+        <LineChart data={data} syncId={SYNC_ID} margin={{ top: isFirst ? 12 : 2, right: 8, bottom: 0, left: 0 }}>
           <XAxis
             dataKey="distance"
             type="number"
@@ -186,6 +190,15 @@ function Panel({
             }}
           />
           <ReferenceLine y={0} stroke="#2A2A30" />
+          {sectorMarkers?.map(m => (
+            <ReferenceLine
+              key={m.label}
+              x={m.pct}
+              stroke="rgba(255,255,255,0.15)"
+              strokeDasharray="3 3"
+              label={isFirst ? { value: m.label, position: 'top', fontSize: 8, fill: '#5A5A66', fontFamily: 'monospace' } : undefined}
+            />
+          ))}
           <Line type="monotone" dataKey={dataKeyA} stroke={colorA} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls />
           <Line type="monotone" dataKey={dataKeyB} stroke={colorB} dot={false} strokeWidth={1.5} strokeDasharray="6 3" isAnimationActive={false} connectNulls />
         </LineChart>
@@ -200,6 +213,7 @@ export function TelemetryChart({ driverA, driverB }: TelemetryChartProps) {
   const colorB = driverB?.color ?? '#888'
   const abbrA = driverA?.abbreviation ?? ''
   const abbrB = driverB?.abbreviation ?? ''
+  const sectorMarkers = driverA?.data.sector_markers ?? driverB?.data.sector_markers ?? []
 
   if (data.length === 0) return null
 
@@ -229,9 +243,9 @@ export function TelemetryChart({ driverA, driverB }: TelemetryChartProps) {
         )}
       </div>
 
-      <Panel data={data} dataKeyA="speedA" dataKeyB="speedB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="SPEED" domain={[0, 350]} unit="km/h" />
-      <Panel data={data} dataKeyA="thrA" dataKeyB="thrB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="THROTTLE" domain={[0, 100]} unit="%" />
-      <Panel data={data} dataKeyA="brkA" dataKeyB="brkB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="BRAKE" domain={[0, 100]} unit="%" />
+      <Panel data={data} dataKeyA="speedA" dataKeyB="speedB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="SPEED" domain={[0, 350]} unit="km/h" sectorMarkers={sectorMarkers} isFirst />
+      <Panel data={data} dataKeyA="thrA" dataKeyB="thrB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="THROTTLE" domain={[0, 100]} unit="%" sectorMarkers={sectorMarkers} />
+      <Panel data={data} dataKeyA="brkA" dataKeyB="brkB" colorA={colorA} colorB={colorB} abbrA={abbrA} abbrB={abbrB} label="BRAKE" domain={[0, 100]} unit="%" sectorMarkers={sectorMarkers} />
 
       {/* Harvest zone indicator — only rendered when the pattern is actually detected */}
       {(() => {

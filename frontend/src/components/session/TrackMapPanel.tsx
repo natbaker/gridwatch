@@ -33,9 +33,12 @@ export interface TrackMapPanelProps {
   onToggleMute?: () => void
   replayDataStart?: string
   replayDuration?: number
+  currentLap?: number
+  totalLaps?: number
+  fastestLap?: number | null
 }
 
-export function TrackMapPanel({ circuit, sessionKey, drivers, pitStops, replayCars, replayTrackPath, replayStandings, activeFlag, flagSectors, miniSectors, sectorIndices, corners, replayTime, driversInPit, followedDriver, onFollowDriver, followTelemetry, isRadioPlaying, radioMuted, onToggleMute, replayDataStart, replayDuration }: TrackMapPanelProps) {
+export function TrackMapPanel({ circuit, sessionKey, drivers, pitStops, replayCars, replayTrackPath, replayStandings, activeFlag, flagSectors, miniSectors, sectorIndices, corners, replayTime, driversInPit, followedDriver, onFollowDriver, followTelemetry, isRadioPlaying, radioMuted, onToggleMute, replayDataStart, replayDuration, currentLap, totalLaps, fastestLap }: TrackMapPanelProps) {
   const { data } = useCarLocations(sessionKey, !replayCars)
   const cars = replayCars ?? data?.cars ?? []
   const trackPath = replayTrackPath || data?.track_path
@@ -134,6 +137,8 @@ export function TrackMapPanel({ circuit, sessionKey, drivers, pitStops, replayCa
           rows={standingRows}
           followedDriver={followedDriver}
           compareDriver={compareDriver}
+          driversInPit={driversInPit}
+          now={now}
           onClickDriver={(n) => {
             if (n === followedDriver) {
               onFollowDriver?.(n) // toggles off
@@ -151,43 +156,27 @@ export function TrackMapPanel({ circuit, sessionKey, drivers, pitStops, replayCa
             dynamicTrackPath={trackPath} flagSectors={flagSectors} miniSectors={miniSectors}
             sectorIndices={effectiveSectorIndices} corners={effectiveCorners} followedDriver={followedDriver} />
         </div>
-        <div className="w-56 flex-shrink-0">
-          <h3 className="text-xs text-text-secondary tracking-[2px] mb-2">PIT STOPS</h3>
-          {driversInPit && driversInPit.length > 0 && (
-            <div className="space-y-1 mb-2">
-              {driversInPit.map((pit) => {
-                const driver = [...(replayStandings ?? []), ...drivers].find(d => d.driver_number === pit.driver_number)
-                const elapsed = Math.max(0, now - pit.entry_time)
-                const teamColor = driver && 'team_color' in driver ? driver.team_color : '#fff'
-                return (
-                  <div key={`pit-${pit.driver_number}`} className="flex items-center gap-2 text-[11px] py-[3px] px-1.5 rounded bg-yellow-500/10 border border-yellow-500/20">
-                    <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-                    <span className="font-mono font-semibold w-8" style={{ color: teamColor }}>
-                      {driver?.abbreviation ?? pit.driver_number}
-                    </span>
-                    <span className="text-yellow-400 text-[10px]">IN PIT</span>
-                    <span className="ml-auto font-mono text-yellow-400">{elapsed.toFixed(1)}s</span>
-                  </div>
-                )
-              })}
+        <div className="w-40 flex-shrink-0 space-y-3">
+          {(currentLap != null && currentLap > 0) && (
+            <div>
+              <p className="text-[9px] text-text-tertiary tracking-[2px] mb-0.5">LAP</p>
+              <p className="font-mono text-sm font-bold text-text-primary">
+                {currentLap}{totalLaps && totalLaps > 0 ? <span className="text-text-tertiary text-xs">/{totalLaps}</span> : null}
+              </p>
             </div>
           )}
-          {pitStops.length > 0 ? (
-            <div className="space-y-1 overflow-y-auto">
-              {pitStops.map((p, i) => (
-                <div key={i} className="flex items-center gap-2 text-[11px] py-[3px] px-1.5 rounded hover:bg-bg-elevated/50">
-                  <div className="w-0.5 h-3.5 rounded-full" style={{ backgroundColor: p.team_color }} />
-                  <span className="font-mono font-semibold w-8">{p.abbreviation}</span>
-                  <span className="text-text-tertiary">L{p.lap_number ?? '?'}</span>
-                  <span className="ml-auto font-mono text-text-secondary">
-                    {p.pit_duration != null ? `${p.pit_duration.toFixed(1)}s` : '—'}
-                  </span>
-                </div>
-              ))}
+          {fastestLap != null && (
+            <div>
+              <p className="text-[9px] text-text-tertiary tracking-[2px] mb-0.5">FASTEST</p>
+              <p className="font-mono text-sm font-bold text-purple-400">
+                {(() => {
+                  const m = Math.floor(fastestLap / 60)
+                  const s = (fastestLap % 60).toFixed(3).padStart(6, '0')
+                  return `${m}:${s}`
+                })()}
+              </p>
             </div>
-          ) : (!driversInPit || driversInPit.length === 0) ? (
-            <p className="text-[10px] text-text-tertiary">No pit stops yet</p>
-          ) : null}
+          )}
         </div>
       </div>
     </div>

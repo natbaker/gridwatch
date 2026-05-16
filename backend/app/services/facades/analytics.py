@@ -200,6 +200,9 @@ class AnalyticsFacade:
         championship_probs = self._simulate_championship(
             drivers, total_rounds, estimated_season_length, n_simulations=10000
         )
+        constructor_probs = self._simulate_constructor_championship(
+            progression["constructors"], drivers, total_rounds, estimated_season_length, n_simulations=10000
+        )
 
         # ── Form guide (last 5 races vs season average) ──
         form_guide = self._compute_form_guide(drivers, window=5)
@@ -303,6 +306,7 @@ class AnalyticsFacade:
             "season": season,
             "total_rounds": total_rounds,
             "championship_probabilities": championship_probs,
+            "constructor_championship_probabilities": constructor_probs,
             "form_guide": form_guide,
             "teammate_battles": teammate_battles,
             "insights": insights,
@@ -331,14 +335,17 @@ class AnalyticsFacade:
         remaining = total_rounds - completed_rounds
         points_system = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
 
-        # Build per-driver finish distributions from recent races
+        # Build per-driver finish distributions from recent races (weight recent races 2x)
         driver_distributions: dict[str, list[int]] = {}
+        driver_dnf_rates: dict[str, float] = {}
         for d in drivers:
-            finishes = [r["position"] for r in d["progression"]]
-            # Weight recent races more (last 5 get double weight)
+            prog = d["progression"]
+            finishes = [r["position"] for r in prog]
             recent = finishes[-5:] if len(finishes) >= 5 else finishes
             weighted = finishes + recent  # Recent races appear twice
             driver_distributions[d["code"]] = weighted
+            dnfs = sum(1 for r in prog if r.get("dnf"))
+            driver_dnf_rates[d["code"]] = dnfs / len(prog) if prog else 0.05
 
         # Run simulations
         win_counts: dict[str, int] = defaultdict(int)
@@ -353,11 +360,15 @@ class AnalyticsFacade:
             sim_points = {d["code"]: d["total_points"] for d in drivers}
 
             for _ in range(remaining):
-                # Sample finishes for each driver from their distribution
+                # Sample finishes — DNF gives a last-place finish (no points)
                 sampled = {}
                 for code in top_codes:
-                    dist = driver_distributions.get(code, [15])
-                    sampled[code] = rng.choice(dist)
+                    dnf_rate = driver_dnf_rates.get(code, 0.05)
+                    if rng.random() < dnf_rate:
+                        sampled[code] = 20  # DNF → classified last
+                    else:
+                        dist = driver_distributions.get(code, [15])
+                        sampled[code] = rng.choice(dist)
 
                 # Resolve ties by randomizing, then assign points by rank
                 ranked = sorted(sampled.items(), key=lambda x: (x[1], rng.random()))
@@ -392,6 +403,84 @@ class AnalyticsFacade:
 
         return sorted(result, key=lambda x: x["win_probability"], reverse=True)
 
+    def _simulate_constructor_championship(
+        self, constructors: list[dict], drivers: list[dict],
+        completed_rounds: int, total_rounds: int, n_simulations: int = 10000
+    ) -> list[dict]:
+        """Monte Carlo constructor championship simulation."""
+        if completed_rounds >= total_rounds or completed_rounds < 2:
+            return [{
+                "name": c["name"],
+                "team_color": c["team_color"],
+                "current_points": c["total_points"],
+                "win_probability": 100.0 if i == 0 else 0.0,
+                "avg_projected_points": c["total_points"],
+            } for i, c in enumerate(constructors)]
+
+        remaining = total_rounds - completed_rounds
+        points_system = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+
+        # Build per-driver distributions (same as driver sim)
+        driver_distributions: dict[str, list[int]] = {}
+        driver_dnf_rates: dict[str, float] = {}
+        driver_team: dict[str, str] = {}
+        for d in drivers:
+            prog = d["progression"]
+            finishes = [r["position"] for r in prog]
+            recent = finishes[-5:] if len(finishes) >= 5 else finishes
+            driver_distributions[d["code"]] = finishes + recent
+            dnfs = sum(1 for r in prog if r.get("dnf"))
+            driver_dnf_rates[d["code"]] = dnfs / len(prog) if prog else 0.05
+            driver_team[d["code"]] = d["team"]
+
+        constructor_points = {c["name"]: c["total_points"] for c in constructors}
+        all_codes = [d["code"] for d in drivers]
+
+        win_counts: dict[str, int] = defaultdict(int)
+        total_pts_sims: dict[str, list[float]] = defaultdict(list)
+
+        rng = random.Random(42)
+
+        for _ in range(n_simulations):
+            sim_pts = dict(constructor_points)
+
+            for _ in range(remaining):
+                sampled = {}
+                for code in all_codes:
+                    if rng.random() < driver_dnf_rates.get(code, 0.05):
+                        sampled[code] = 20
+                    else:
+                        dist = driver_distributions.get(code, [15])
+                        sampled[code] = rng.choice(dist)
+
+                ranked = sorted(sampled.items(), key=lambda x: (x[1], rng.random()))
+                for rank_idx, (code, _) in enumerate(ranked):
+                    if rank_idx < len(points_system):
+                        team = driver_team.get(code)
+                        if team and team in sim_pts:
+                            sim_pts[team] += points_system[rank_idx]
+
+            winner = max(sim_pts, key=lambda t: sim_pts[t])
+            win_counts[winner] += 1
+            for t, pts in sim_pts.items():
+                total_pts_sims[t].append(pts)
+
+        result = []
+        for c in constructors:
+            name = c["name"]
+            pts_list = total_pts_sims.get(name, [c["total_points"]])
+            result.append({
+                "name": name,
+                "team_color": c["team_color"],
+                "current_points": c["total_points"],
+                "win_probability": round(win_counts.get(name, 0) / n_simulations * 100, 1),
+                "avg_projected_points": round(sum(pts_list) / len(pts_list), 0),
+                "p10_points": round(sorted(pts_list)[int(len(pts_list) * 0.1)], 0),
+                "p90_points": round(sorted(pts_list)[int(len(pts_list) * 0.9)], 0),
+            })
+
+        return sorted(result, key=lambda x: x["win_probability"], reverse=True)
+
     def _compute_form_guide(self, drivers: list[dict], window: int = 5) -> list[dict]:
         """Compare recent form (last N races) to season average."""
         form = []
@@ -405,12 +494,14 @@ class AnalyticsFacade:
                 prev = prog[i-1]["points"] if i > 0 else 0
                 all_points[i] = r["points"] - prev  # Points scored in this race
 
+            # Use at most half the races as "recent" so it's always a proper subset
+            effective_window = min(window, max(2, len(prog) // 2))
             season_avg = sum(all_points) / len(all_points)
-            recent = all_points[-window:]
+            recent = all_points[-effective_window:]
             recent_avg = sum(recent) / len(recent)
 
             all_finishes = [r["position"] for r in prog]
-            recent_finishes = all_finishes[-window:]
+            recent_finishes = all_finishes[-effective_window:]
             season_avg_finish = sum(all_finishes) / len(all_finishes)
             recent_avg_finish = sum(recent_finishes) / len(recent_finishes)
 

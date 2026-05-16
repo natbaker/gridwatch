@@ -320,6 +320,7 @@ export interface LapTelemetryResponse {
   lap_number: number
   lap_time: string | null
   lap_preset: string
+  sector_markers?: { pct: number; label: string }[]
   channels: LapTelemetryChannels
 }
 
