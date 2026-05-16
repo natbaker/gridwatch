@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     openmeteo_base_url: str = "https://api.open-meteo.com"
 
     admin_token: str = ""
+    mongo_connection_string: str = ""
+    openf1_db_name: str = "openf1-livetiming"
 
     cache_ttl_schedule: int = 3600
     cache_ttl_next_session: int = 60

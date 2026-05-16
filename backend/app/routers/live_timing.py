@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Query
 
 router = APIRouter(prefix="/api")
 
@@ -73,6 +73,21 @@ async def get_car_telemetry(
 ):
     facade = request.app.state.live_timing_facade
     return await facade.get_car_telemetry(session_key, driver_number, from_time, seconds)
+
+
+@router.post("/sessions/{session_key}/import-telemetry")
+async def trigger_import_telemetry(request: Request, session_key: int):
+    from app.config import settings
+    from app.services import telemetry_import
+    if not settings.mongo_connection_string:
+        raise HTTPException(status_code=503, detail="MongoDB not configured (set GRIDWATCH_MONGO_CONNECTION_STRING)")
+    return await telemetry_import.start_import(session_key, settings.mongo_connection_string, settings.openf1_db_name)
+
+
+@router.get("/sessions/{session_key}/import-status")
+async def get_import_status(session_key: int):
+    from app.services import telemetry_import
+    return telemetry_import.get_status(session_key)
 
 
 @router.get("/sessions/{session_key}/lap-telemetry")

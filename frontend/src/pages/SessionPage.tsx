@@ -94,6 +94,7 @@ export function SessionPage() {
   const [compareDriverA, setCompareDriverA] = useState<number | null>(null)
   const [compareDriverB, setCompareDriverB] = useState<number | null>(null)
   const [compareLapPreset, setCompareLapPreset] = useState<LapPreset>('fastest')
+  const [importState, setImportState] = useState<{ status: string; progress?: string } | null>(null)
   // Session key from timing data when no URL params (direct /live visit)
   // When navigating by round, sessionKey is the resolved key — don't fall back to stale
   // timingData which may still reference the previous session during a session switch.
@@ -433,6 +434,39 @@ export function SessionPage() {
               {compTelemetryA.error && compTelemetryB.error && (
                 <div className="flex flex-col items-center gap-3 py-6">
                   <span className="text-[10px] text-text-tertiary font-mono">Session data not available for lap comparison</span>
+                  {compareSessionKey && (
+                    importState?.status === 'running' || importState?.status === 'started' || importState?.status === 'already_running' ? (
+                      <span className="text-[10px] text-accent font-mono animate-pulse">
+                        IMPORTING... {importState.progress ?? ''}
+                      </span>
+                    ) : importState?.status === 'done' ? (
+                      <span className="text-[10px] text-green-400 font-mono">Import complete — select drivers again to load</span>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          setImportState({ status: 'started', progress: 'queued' })
+                          const resp = await fetch(`/api/sessions/${compareSessionKey}/import-telemetry`, { method: 'POST' })
+                          const data = await resp.json()
+                          setImportState(data)
+                          const poll = setInterval(async () => {
+                            const r = await fetch(`/api/sessions/${compareSessionKey}/import-status`)
+                            const s = await r.json()
+                            setImportState(s)
+                            if (s.status === 'done' || s.status === 'error') {
+                              clearInterval(poll)
+                              if (s.status === 'done') {
+                                compTelemetryA.refetch()
+                                compTelemetryB.refetch()
+                              }
+                            }
+                          }, 3000)
+                        }}
+                        className="text-[10px] text-accent hover:text-accent/80 font-mono font-medium"
+                      >
+                        IMPORT TELEMETRY ▶
+                      </button>
+                    )
+                  )}
                 </div>
               )}
               {!compTelemetryA.isLoading && !compTelemetryB.isLoading && (
