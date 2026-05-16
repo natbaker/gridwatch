@@ -3,6 +3,9 @@
 On first run against an empty MongoDB this acts as a full historical bootstrap.
 On subsequent runs it only imports sessions not yet present locally.
 
+Sessions that were previously "imported" but had no actual data (e.g. the script
+ran before a race happened) will be retried automatically.
+
 Env vars:
   MONGO_CONNECTION_STRING  default: mongodb://localhost:27017
   OPENF1_DB_NAME           default: openf1-livetiming
@@ -92,14 +95,18 @@ def insert(db, collection: str, docs: list):
         pass  # duplicate key errors on retry — safe to ignore
 
 
-def import_bulk(db, session_key: int):
+def import_bulk(db, session_key: int) -> int:
+    """Import all bulk endpoints for a session. Returns total rows inserted."""
+    total = 0
     for endpoint in BULK_ENDPOINTS:
         rows = fetch_csv_raw(endpoint, {"session_key": session_key})
         if rows:
             docs = [parse_row(r) for r in rows]
             insert(db, endpoint, docs)
+            total += len(docs)
             log.info(f"  {endpoint}: {len(docs)}")
         time.sleep(RATE_DELAY)
+    return total
 
 
 def import_telemetry(db, session_key: int):
@@ -131,13 +138,33 @@ def main():
 
     tracking = {
         doc["session_key"]: doc
-        for doc in db["_imported_sessions"].find({}, {"session_key": 1, "has_telemetry": 1})
+        for doc in db["_imported_sessions"].find({}, {"session_key": 1, "has_telemetry": 1, "has_data": 1})
     }
 
-    missing_bulk = [k for k in remote_keys if k not in tracking]
+    # Sessions to (re)import: not tracked, or tracked without confirmed data.
+    # First check local MongoDB to avoid re-fetching what ingest-realtime already captured.
+    needs_check = [k for k in remote_keys if k not in tracking or not tracking[k].get("has_data")]
+
+    missing_bulk = []
+    for k in needs_check:
+        has_local = bool(db["laps"].count_documents({"session_key": k}, limit=1))
+        if has_local:
+            # Data is already in MongoDB (from ingest-realtime); just fix the tracking entry.
+            db["_imported_sessions"].update_one(
+                {"session_key": k},
+                {"$set": {"has_data": True}},
+                upsert=True,
+            )
+            log.info(f"Session {k}: already in MongoDB, marked as imported")
+        else:
+            missing_bulk.append(k)
+
     missing_telemetry = (
         [] if SKIP_TELEMETRY
-        else [k for k in remote_keys if k in tracking and not tracking[k].get("has_telemetry")]
+        else [
+            k for k in remote_keys
+            if k in tracking and tracking[k].get("has_data") and not tracking[k].get("has_telemetry")
+        ]
     )
 
     if not missing_bulk and not missing_telemetry:
@@ -145,15 +172,26 @@ def main():
         return
 
     if missing_bulk:
-        log.info(f"Importing {len(missing_bulk)} new sessions...")
+        log.info(f"Importing {len(missing_bulk)} sessions...")
         for session_key in missing_bulk:
             log.info(f"Session {session_key}")
-            import_bulk(db, session_key)
+            total = import_bulk(db, session_key)
+            if not total:
+                log.info(f"  no data available yet, skipping tracking")
+                continue
             if not SKIP_TELEMETRY:
                 import_telemetry(db, session_key)
-                db["_imported_sessions"].insert_one({"session_key": session_key, "has_telemetry": True})
+                db["_imported_sessions"].update_one(
+                    {"session_key": session_key},
+                    {"$set": {"has_data": True, "has_telemetry": True}},
+                    upsert=True,
+                )
             else:
-                db["_imported_sessions"].insert_one({"session_key": session_key, "has_telemetry": False})
+                db["_imported_sessions"].update_one(
+                    {"session_key": session_key},
+                    {"$set": {"has_data": True, "has_telemetry": False}},
+                    upsert=True,
+                )
 
     if missing_telemetry:
         log.info(f"Backfilling telemetry for {len(missing_telemetry)} sessions...")

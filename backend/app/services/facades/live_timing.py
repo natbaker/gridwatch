@@ -1250,28 +1250,16 @@ class LiveTimingFacade:
             sk = session["session_key"]
             date_start = session.get("date_start", "")
 
-            date_lte = ""
-            if date_start:
-                try:
-                    dt = datetime.fromisoformat(date_start.replace("Z", "+00:00"))
-                    date_lte = (dt + timedelta(seconds=60)).isoformat()
-                except ValueError:
-                    pass
-
             laps_task = self._openf1.get_laps(sk)
             radio_task = self._openf1.get_team_radio(sk)
-            laps, radio = await asyncio.gather(laps_task, radio_task)
-
-            if date_start and date_lte:
-                locs = await self._openf1.get_locations(sk, date_gte=date_start, date_lte=date_lte)
-            else:
-                locs = []
+            locs_task = self._openf1.check_has_locations(sk)
+            laps, radio, has_locs = await asyncio.gather(laps_task, radio_task, locs_task)
 
             return {
                 "session_key": sk,
                 "session_name": session.get("session_name", ""),
                 "date_start": date_start,
-                "has_positions": len(locs) > 0,
+                "has_positions": has_locs,
                 "has_laps": len(laps) > 0,
                 "has_radio": len(radio) > 0,
             }

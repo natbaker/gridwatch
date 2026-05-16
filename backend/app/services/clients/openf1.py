@@ -103,6 +103,11 @@ class OpenF1Client:
             params["date<"] = date_lte
         return await self._get("/car_data", params=params)
 
+    async def check_has_locations(self, session_key: int) -> bool:
+        """Lightweight existence check — passes limit=1 to avoid fetching bulk data."""
+        result = await self._get("/location", params={"session_key": str(session_key), "limit": "1"})
+        return len(result) > 0
+
     async def get_sessions(self, **params: str) -> list[dict]:
         return await self._get("/sessions", params=params)
 
