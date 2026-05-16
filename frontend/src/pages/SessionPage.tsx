@@ -71,8 +71,6 @@ export function SessionPage() {
   const lookupError = (roundLookup as Record<string, unknown>)?.error as string | undefined
   const sessionKey = directSessionKey ?? resolvedKey
 
-  const hudEnabled = searchParams.get('hud') === '1'
-
   // Live timing (skip while resolving round)
   const pendingLookup = needsRoundLookup && !roundLookup && !roundError
   const skipTiming = pendingLookup || (needsRoundLookup && !sessionKey)
@@ -104,6 +102,7 @@ export function SessionPage() {
     : (sessionKey ?? timingData?.session?.session_key)
   const isLive = !!timingData?.session?.is_live
   const isHistorical = !!effectiveSessionKey && !!timingData?.session && !isLive
+  const hudEnabled = isHistorical || searchParams.get('hud') === '1'
 
   // Replay — auto-start when navigating with params
   const [replayStarted, setReplayStarted] = useState(!!roundParam || !!directSessionKey)

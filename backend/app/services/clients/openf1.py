@@ -72,7 +72,18 @@ class OpenF1Client:
         return await self._get("/pit", params={"session_key": str(session_key)})
 
     async def get_drivers(self, session_key: int) -> list[dict]:
-        return await self._get("/drivers", params={"session_key": str(session_key)})
+        result = await self._get("/drivers", params={"session_key": str(session_key)})
+        # ingest-realtime may capture incomplete rosters; F1 sessions always have 16-20 drivers.
+        # If primary returned suspiciously few, supplement from fallback.
+        if len(result) < 10 and self._fallback:
+            fallback = await self._fetch(self._fallback, "/drivers",
+                                         {"session_key": str(session_key)}, is_fallback=True)
+            if fallback:
+                primary_nums = {d.get("driver_number") for d in result}
+                for d in fallback:
+                    if d.get("driver_number") not in primary_nums:
+                        result.append(d)
+        return result
 
     async def get_race_control(self, session_key: int) -> list[dict]:
         return await self._get("/race_control", params={"session_key": str(session_key)})
