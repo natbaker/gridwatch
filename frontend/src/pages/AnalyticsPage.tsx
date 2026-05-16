@@ -188,7 +188,7 @@ function PredictionsPanel() {
           <h3 className="text-xs text-text-secondary tracking-[2px] mb-1">CHAMPIONSHIP PROBABILITY</h3>
           <p className="text-[10px] text-text-tertiary mb-4">Monte Carlo simulation (10,000 runs) based on finish distributions</p>
           <div className="space-y-3">
-            {data.championship_probabilities.filter((d: Record<string, unknown>) => (d.win_probability as number) > 0.5).map((d: Record<string, unknown>, i: number) => (
+            {data.championship_probabilities.slice(0, 5).map((d: Record<string, unknown>, i: number) => (
               <div key={i} className="space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -234,7 +234,7 @@ function PredictionsPanel() {
           <h3 className="text-xs text-text-secondary tracking-[2px] mb-1">CONSTRUCTOR CHAMPIONSHIP PROBABILITY</h3>
           <p className="text-[10px] text-text-tertiary mb-4">Monte Carlo simulation (10,000 runs)</p>
           <div className="space-y-3">
-            {data.constructor_championship_probabilities.filter((c: Record<string, unknown>) => (c.win_probability as number) > 0.5).map((c: Record<string, unknown>, i: number) => (
+            {data.constructor_championship_probabilities.slice(0, 5).map((c: Record<string, unknown>, i: number) => (
               <div key={i} className="space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -504,6 +504,8 @@ export function AnalyticsPage() {
 
       {/* Driver stats grid */}
       {tab === 'drivers' && (
+        <div className="relative">
+        <div className="overflow-y-auto max-h-[310px] pr-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:transparent">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {data.drivers.map(d => {
             const wins = d.progression.filter(r => r.position === 1).length
@@ -548,10 +550,14 @@ export function AnalyticsPage() {
             )
           })}
         </div>
+        </div>
+        </div>
       )}
 
       {/* Constructor stats grid */}
       {tab === 'constructors' && (
+        <div className="relative">
+        <div className="overflow-y-auto max-h-[310px] pr-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:transparent">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {data.constructors.map(c => {
             const cDrivers = data.drivers.filter(d => d.team === c.name)
@@ -596,10 +602,14 @@ export function AnalyticsPage() {
             )
           })}
         </div>
+        </div>
+        </div>
       )}
 
       {/* Position stats grid */}
       {tab === 'positions' && (
+        <div className="relative">
+        <div className="overflow-y-auto max-h-[310px] pr-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:transparent">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {data.drivers.map(d => {
             const races = d.progression.length
@@ -657,6 +667,8 @@ export function AnalyticsPage() {
               </div>
             )
           })}
+        </div>
+        </div>
         </div>
       )}
     </div>

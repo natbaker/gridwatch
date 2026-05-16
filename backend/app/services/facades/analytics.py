@@ -356,6 +356,10 @@ class AnalyticsFacade:
 
         rng = random.Random(42)  # Deterministic for caching
 
+        # 15% chance each race a driver finishes in a random position — adds variance
+        # so even dominant leaders don't hit 100% when the season is still young
+        UPSET_RATE = 0.15
+
         for _ in range(n_simulations):
             sim_points = {d["code"]: d["total_points"] for d in drivers}
 
@@ -364,7 +368,9 @@ class AnalyticsFacade:
                 sampled = {}
                 for code in top_codes:
                     dnf_rate = driver_dnf_rates.get(code, 0.05)
-                    if rng.random() < dnf_rate:
+                    if rng.random() < UPSET_RATE:
+                        sampled[code] = rng.randint(1, 20)  # random upset
+                    elif rng.random() < dnf_rate:
                         sampled[code] = 20  # DNF → classified last
                     else:
                         dist = driver_distributions.get(code, [15])
@@ -440,6 +446,7 @@ class AnalyticsFacade:
         total_pts_sims: dict[str, list[float]] = defaultdict(list)
 
         rng = random.Random(42)
+        UPSET_RATE = 0.15
 
         for _ in range(n_simulations):
             sim_pts = dict(constructor_points)
@@ -447,7 +454,9 @@ class AnalyticsFacade:
             for _ in range(remaining):
                 sampled = {}
                 for code in all_codes:
-                    if rng.random() < driver_dnf_rates.get(code, 0.05):
+                    if rng.random() < UPSET_RATE:
+                        sampled[code] = rng.randint(1, 20)
+                    elif rng.random() < driver_dnf_rates.get(code, 0.05):
                         sampled[code] = 20
                     else:
                         dist = driver_distributions.get(code, [15])
