@@ -38,7 +38,7 @@ export interface TrackMapPanelProps {
   fastestLap?: number | null
 }
 
-export function TrackMapPanel({ circuit, sessionKey, drivers, pitStops, replayCars, replayTrackPath, replayStandings, activeFlag, flagSectors, miniSectors, sectorIndices, corners, replayTime, driversInPit, followedDriver, onFollowDriver, followTelemetry, isRadioPlaying, radioMuted, onToggleMute, replayDataStart, replayDuration, currentLap, totalLaps, fastestLap }: TrackMapPanelProps) {
+export function TrackMapPanel({ circuit, sessionKey, drivers, replayCars, replayTrackPath, replayStandings, activeFlag, flagSectors, miniSectors, sectorIndices, corners, replayTime, driversInPit, followedDriver, onFollowDriver, followTelemetry, isRadioPlaying, radioMuted, onToggleMute, replayDataStart, replayDuration, currentLap, totalLaps, fastestLap }: TrackMapPanelProps) {
   const { data } = useCarLocations(sessionKey, !replayCars)
   const cars = replayCars ?? data?.cars ?? []
   const trackPath = replayTrackPath || data?.track_path

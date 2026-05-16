@@ -452,6 +452,14 @@ export interface PredictionsResponse {
     races: number
     dnf_rate: number
   }[]
+  constructor_championship_probabilities: {
+    name: string
+    team_color: string
+    current_points: number
+    win_probability: number
+    podium_probability: number
+    avg_projected_points: number
+  }[]
   warnings: string[]
 }
 
