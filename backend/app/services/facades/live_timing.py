@@ -807,9 +807,8 @@ class LiveTimingFacade:
                 if t >= 0:
                     position_events.append({"t": round(t, 1), "n": num, "p": pos})
 
-        # Downsample intervals — keep one per driver per ~5 seconds
-        interval_events = []
-        last_interval_t: dict[int, float] = {}
+        # Downsample intervals — sort first (MongoDB may return unsorted), then keep one per driver per ~5s
+        intervals_parsed = []
         for iv in intervals_raw:
             date = iv.get("date")
             num = iv.get("driver_number")
@@ -818,18 +817,23 @@ class LiveTimingFacade:
             t = (datetime.fromisoformat(date) - start_dt).total_seconds()
             if t < 0:
                 continue
-            # Only keep if 5+ seconds since last for this driver
+            intervals_parsed.append((t, num, iv.get("gap_to_leader"), iv.get("interval")))
+        intervals_parsed.sort(key=lambda x: x[0])
+
+        interval_events = []
+        last_interval_t: dict[int, float] = {}
+        for t, num, gap, interval in intervals_parsed:
             if num in last_interval_t and t - last_interval_t[num] < 5:
                 continue
             last_interval_t[num] = t
-            gap = iv.get("gap_to_leader")
-            interval = iv.get("interval")
             interval_events.append({
                 "t": round(t, 1),
                 "n": num,
                 "g": round(gap, 3) if isinstance(gap, (int, float)) else None,
                 "i": round(interval, 3) if isinstance(interval, (int, float)) else None,
             })
+
+        position_events.sort(key=lambda e: e["t"])
 
         race_control = []
         for rc in rc_raw:
@@ -851,6 +855,7 @@ class LiveTimingFacade:
                 if rc.get("sector") is not None:
                     rc_event["sector"] = rc["sector"]
                 race_control.append(rc_event)
+        race_control.sort(key=lambda e: e["t"])
 
         # Find leader's laps (driver in P1 at start, or just driver with most laps)
         # Use the first position event's leader, or take all laps from all drivers
@@ -897,6 +902,7 @@ class LiveTimingFacade:
                 "wind_direction": w.get("wind_direction"),
                 "rainfall": w.get("rainfall", 0),
             })
+        weather_events.sort(key=lambda e: e["t"])
         # Downsample weather — keep one per ~30 seconds
         if len(weather_events) > 200:
             sampled = []
