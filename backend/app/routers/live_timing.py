@@ -90,6 +90,12 @@ async def get_import_status(session_key: int):
     return telemetry_import.get_status(session_key)
 
 
+@router.get("/sessions-status")
+async def get_sessions_data_status(request: Request, year: int = Query(...)):
+    facade = request.app.state.live_timing_facade
+    return await facade.get_sessions_data_status(year)
+
+
 @router.get("/sessions/{session_key}/lap-telemetry")
 async def get_lap_telemetry(
     request: Request,

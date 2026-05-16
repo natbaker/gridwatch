@@ -484,3 +484,20 @@ export interface Countdown {
   seconds: number
   isExpired: boolean
 }
+
+export interface SessionDataStatus {
+  session_key: number
+  session_name: string
+  date_start: string
+  has_positions: boolean
+  has_laps: boolean
+  has_radio: boolean
+}
+
+export interface MeetingDataStatus {
+  meeting_key: number
+  meeting_name: string
+  circuit_short_name: string
+  date_start: string
+  sessions: SessionDataStatus[]
+}

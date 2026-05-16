@@ -1236,3 +1236,58 @@ class LiveTimingFacade:
                 "brake": brake_out,
             },
         }
+
+    async def get_sessions_data_status(self, year: int) -> list[dict]:
+        cache_key = f"sessions_data_status_{year}"
+        cached = self._cache.get(cache_key)
+        if cached:
+            return cached
+
+        meetings = await self._openf1.get_meetings(year)
+        race_meetings = [m for m in meetings if "test" not in m.get("meeting_name", "").lower()]
+
+        async def check_session(session: dict) -> dict:
+            sk = session["session_key"]
+            date_start = session.get("date_start", "")
+
+            date_lte = ""
+            if date_start:
+                try:
+                    dt = datetime.fromisoformat(date_start.replace("Z", "+00:00"))
+                    date_lte = (dt + timedelta(seconds=60)).isoformat()
+                except ValueError:
+                    pass
+
+            laps_task = self._openf1.get_laps(sk)
+            radio_task = self._openf1.get_team_radio(sk)
+            laps, radio = await asyncio.gather(laps_task, radio_task)
+
+            if date_start and date_lte:
+                locs = await self._openf1.get_locations(sk, date_gte=date_start, date_lte=date_lte)
+            else:
+                locs = []
+
+            return {
+                "session_key": sk,
+                "session_name": session.get("session_name", ""),
+                "date_start": date_start,
+                "has_positions": len(locs) > 0,
+                "has_laps": len(laps) > 0,
+                "has_radio": len(radio) > 0,
+            }
+
+        async def check_meeting(meeting: dict) -> dict:
+            meeting_key = str(meeting["meeting_key"])
+            sessions = await self._openf1.get_sessions(meeting_key=meeting_key)
+            session_results = await asyncio.gather(*[check_session(s) for s in sessions])
+            return {
+                "meeting_key": int(meeting_key),
+                "meeting_name": meeting.get("meeting_name", ""),
+                "circuit_short_name": meeting.get("circuit_short_name", ""),
+                "date_start": meeting.get("date_start", ""),
+                "sessions": list(session_results),
+            }
+
+        results = list(await asyncio.gather(*[check_meeting(m) for m in race_meetings]))
+        self._cache.set(cache_key, results, 600)
+        return results

@@ -17,6 +17,7 @@ import type {
   WeatherResponse,
   NewsResponse,
   VideosResponse,
+  MeetingDataStatus,
 } from '../types'
 
 const BASE = '/api'
@@ -75,4 +76,6 @@ export const api = {
   },
   getLapTelemetry: (sessionKey: number, driverNumber: number, lap = 'fastest') =>
     fetchJson<LapTelemetryResponse>(`/sessions/${sessionKey}/lap-telemetry?driver_number=${driverNumber}&lap=${lap}`),
+  getSessionsStatus: (year: number) =>
+    fetchJson<MeetingDataStatus[]>(`/sessions-status?year=${year}`),
 }
