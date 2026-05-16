@@ -341,9 +341,19 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
     trackPath: info?.track_path ?? '',
     sessionName: info?.session_name ?? '',
     circuit: info?.circuit ?? '',
-    play: () => { if (totalDuration > 0) setIsPlaying(true) },
+    play: () => {
+      if (totalDuration > 0) {
+        if (currentTime < firstEventTime) setCurrentTime(firstEventTime)
+        setIsPlaying(true)
+      }
+    },
     pause: () => setIsPlaying(false),
-    togglePlay: () => { if (totalDuration > 0) setIsPlaying(p => !p) },
+    togglePlay: () => {
+      if (totalDuration > 0) {
+        if (!isPlaying && currentTime < firstEventTime) setCurrentTime(firstEventTime)
+        setIsPlaying(p => !p)
+      }
+    },
     setSpeed,
     seek,
   }
