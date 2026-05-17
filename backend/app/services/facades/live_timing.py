@@ -1246,23 +1246,24 @@ class LiveTimingFacade:
         meetings = await self._openf1.get_meetings(year)
         race_meetings = [m for m in meetings if "test" not in m.get("meeting_name", "").lower()]
 
+        sem = asyncio.Semaphore(3)  # limit parallel OpenF1 requests
+
         async def check_session(session: dict) -> dict:
-            sk = session["session_key"]
-            date_start = session.get("date_start", "")
-
-            laps_task = self._openf1.get_laps(sk)
-            radio_task = self._openf1.get_team_radio(sk)
-            locs_task = self._openf1.check_has_locations(sk)
-            laps, radio, has_locs = await asyncio.gather(laps_task, radio_task, locs_task)
-
-            return {
-                "session_key": sk,
-                "session_name": session.get("session_name", ""),
-                "date_start": date_start,
-                "has_positions": has_locs,
-                "has_laps": len(laps) > 0,
-                "has_radio": len(radio) > 0,
-            }
+            async with sem:
+                sk = session["session_key"]
+                date_start = session.get("date_start", "")
+                laps_task = self._openf1.get_laps(sk)
+                radio_task = self._openf1.get_team_radio(sk)
+                locs_task = self._openf1.check_has_locations(sk)
+                laps, radio, has_locs = await asyncio.gather(laps_task, radio_task, locs_task)
+                return {
+                    "session_key": sk,
+                    "session_name": session.get("session_name", ""),
+                    "date_start": date_start,
+                    "has_positions": has_locs,
+                    "has_laps": len(laps) > 0,
+                    "has_radio": len(radio) > 0,
+                }
 
         async def check_meeting(meeting: dict) -> dict:
             meeting_key = str(meeting["meeting_key"])

@@ -66,6 +66,7 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
   const [isPlaying, setIsPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [currentTime, setCurrentTime] = useState(0)
+  const [hasPositions, setHasPositions] = useState(false)
 
   const positionsRef = useRef<ReplayPosition[]>([])
   const bufferEndRef = useRef(0)
@@ -76,6 +77,7 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
     setCurrentTime(0)
     setIsPlaying(false)
     setSpeed(1)
+    setHasPositions(false)
     positionsRef.current = []
     bufferEndRef.current = 0
     fetchingRef.current = false
@@ -119,6 +121,7 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
           ...adjusted,
         ]
         bufferEndRef.current = fromSeconds + CHUNK_SECONDS
+        setHasPositions(true)
       }
     } catch {
       // ignore
@@ -319,7 +322,7 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
   }, [totalDuration, fetchChunk])
 
   return {
-    isReady: !!info && positionsRef.current.length > 0,
+    isReady: !!info && hasPositions,
     isPlaying,
     speed,
     currentTime,
