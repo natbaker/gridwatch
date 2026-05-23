@@ -1,7 +1,8 @@
-"""Behavioral tests for LiveTimingFacade.get_timing_data using mocked clients."""
+"""Behavioral tests for LiveTimingFacade — get_timing_data and session key lookup."""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+from datetime import datetime, timezone, timedelta
 
 from app.cache import TTLCache
 from app.services.facades.live_timing import LiveTimingFacade
@@ -305,3 +306,104 @@ async def test_ttl_is_60_seconds_when_session_is_not_live():
     _, expires_at = entry
     expected_expiry = time.monotonic() + 60
     assert abs(expires_at - expected_expiry) < 1.0
+
+
+# ── get_session_key_for_round ─────────────────────────────────────────────────
+
+def _make_key_lookup_facade(meetings=None, sessions=None):
+    openf1 = AsyncMock()
+    openf1.get_meetings.return_value = meetings or []
+    openf1.get_sessions.return_value = sessions or []
+    return LiveTimingFacade(openf1=openf1, cache=TTLCache())
+
+
+@pytest.mark.asyncio
+async def test_session_key_prefers_session_name_over_type():
+    """session_name='Race' beats session_type='Race' (Sprint disambiguation).
+
+    Sprint sessions have session_type='Race' but session_name='Sprint'.
+    When asked for 'Race', we must return the session with session_name='Race'
+    and not the Sprint session.
+    """
+    meetings = [
+        {"meeting_key": 1, "meeting_name": "Miami Grand Prix", "date_start": "2026-05-01"}
+    ]
+    sessions = [
+        {"session_key": 201, "session_name": "Sprint", "session_type": "Race"},
+        {"session_key": 202, "session_name": "Race",   "session_type": "Race"},
+    ]
+    facade = _make_key_lookup_facade(meetings=meetings, sessions=sessions)
+
+    result = await facade.get_session_key_for_round(2026, 1, "Race")
+
+    assert result["session_key"] == 202
+
+
+@pytest.mark.asyncio
+async def test_session_key_falls_back_to_type_when_no_name_match():
+    """Falls back to session_type match when no session_name matches the requested type."""
+    meetings = [
+        {"meeting_key": 1, "meeting_name": "Miami Grand Prix", "date_start": "2026-05-01"}
+    ]
+    sessions = [
+        {"session_key": 201, "session_name": "Practice 1", "session_type": "Practice"},
+        {"session_key": 202, "session_name": "Qualifying",  "session_type": "Qualifying"},
+    ]
+    facade = _make_key_lookup_facade(meetings=meetings, sessions=sessions)
+
+    result = await facade.get_session_key_for_round(2026, 1, "Qualifying")
+
+    assert result["session_key"] == 202
+
+
+@pytest.mark.asyncio
+async def test_session_key_date_matching_picks_closest_meeting():
+    """When race_date is provided, picks the meeting closest by date rather than by index."""
+    meetings = [
+        {"meeting_key": 1, "meeting_name": "Australian Grand Prix", "date_start": "2026-03-15"},
+        {"meeting_key": 2, "meeting_name": "Chinese Grand Prix",    "date_start": "2026-03-22"},
+        {"meeting_key": 3, "meeting_name": "Japanese Grand Prix",   "date_start": "2026-04-05"},
+    ]
+    sessions_for_meeting_2 = [
+        {"session_key": 501, "session_name": "Race", "session_type": "Race"},
+    ]
+    openf1 = AsyncMock()
+    openf1.get_meetings.return_value = meetings
+    openf1.get_sessions.return_value = sessions_for_meeting_2
+    facade = LiveTimingFacade(openf1=openf1, cache=TTLCache())
+
+    # race_date matches Chinese GP most closely
+    result = await facade.get_session_key_for_round(2026, 1, "Race", race_date="2026-03-23")
+
+    assert result["session_key"] == 501
+
+
+@pytest.mark.asyncio
+async def test_session_key_not_found_returns_error():
+    """Returns {session_key: None, error: ...} when round number is out of range."""
+    meetings = [
+        {"meeting_key": 1, "meeting_name": "Australian Grand Prix", "date_start": "2026-03-15"}
+    ]
+    facade = _make_key_lookup_facade(meetings=meetings)
+
+    result = await facade.get_session_key_for_round(2026, 99, "Race")
+
+    assert result["session_key"] is None
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_session_key_no_matching_session_type_returns_error():
+    """Returns error when sessions exist but none match the requested type."""
+    meetings = [
+        {"meeting_key": 1, "meeting_name": "Miami Grand Prix", "date_start": "2026-05-01"}
+    ]
+    sessions = [
+        {"session_key": 201, "session_name": "Practice 1", "session_type": "Practice"},
+    ]
+    facade = _make_key_lookup_facade(meetings=meetings, sessions=sessions)
+
+    result = await facade.get_session_key_for_round(2026, 1, "Race")
+
+    assert result["session_key"] is None
+    assert "error" in result
