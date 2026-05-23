@@ -46,7 +46,7 @@ export function SessionPage() {
   const prevRace = currentIdx > 0 ? activeRaces[currentIdx - 1] : null
   const nextRace = currentIdx >= 0 && currentIdx < activeRaces.length - 1 ? activeRaces[currentIdx + 1] : null
   const raceNavUrl = (r: typeof activeRaces[0]) =>
-    `/race/${r.round}?race_date=${r.race_date.slice(0, 10)}&session_type=${encodeURIComponent(sessionTypeParam)}`
+    `/race/${r.round}?race_date=${r.race_date.slice(0, 10)}`
 
   // Fetch all sessions for this weekend (for session switcher)
   const { data: roundSessionsData } = useQuery({
@@ -150,6 +150,8 @@ export function SessionPage() {
   const isRateLimit = lookupError?.includes('429') || lookupError?.includes('Too Many Requests')
     || timingError?.message?.includes('429') || timingError?.message?.includes('Too Many Requests')
 
+  const isSessionNotFound = lookupFailed && !roundError && !isRateLimit
+
   if (lookupFailed || roundError || isRateLimit) {
     return (
       <div className="max-w-[1280px] mx-auto px-5 py-6 space-y-5 animate-fade-in-up">
@@ -157,14 +159,23 @@ export function SessionPage() {
         <div className="bg-bg-card border border-border rounded-xl p-8 sm:p-12 text-center">
           <div className="text-4xl mb-4">{isRateLimit ? '⏳' : '⚠️'}</div>
           <h2 className="font-display text-xl font-bold mb-2">
-            {isRateLimit ? 'DATA SOURCE RATE LIMITED' : 'FAILED TO LOAD SESSION'}
+            {isRateLimit ? 'DATA SOURCE RATE LIMITED' : isSessionNotFound ? 'SESSION NOT AVAILABLE' : 'FAILED TO LOAD SESSION'}
           </h2>
           <p className="text-sm text-text-secondary max-w-md mx-auto mb-4">
             {isRateLimit
               ? 'OpenF1 is temporarily limiting requests. Please wait 30-60 seconds and try again.'
               : lookupError || timingError?.message || 'Could not find a session for this round.'}
           </p>
-          <button onClick={() => refetchTiming()} className="text-xs text-accent hover:text-accent/80 font-medium">RETRY</button>
+          {isSessionNotFound && roundParam ? (
+            <Link
+              to={`/race/${roundParam}?race_date=${raceDateParam ?? ''}`}
+              className="text-xs text-accent hover:text-accent/80 font-medium"
+            >
+              VIEW RACE SESSION
+            </Link>
+          ) : (
+            <button onClick={() => refetchTiming()} className="text-xs text-accent hover:text-accent/80 font-medium">RETRY</button>
+          )}
         </div>
       </div>
     )
