@@ -107,7 +107,6 @@ describe('ReplayControls — play/pause', () => {
   it('calls onTogglePlay when play button is clicked', () => {
     const onTogglePlay = vi.fn()
     render(<ReplayControls {...baseProps} onTogglePlay={onTogglePlay} />)
-    const button = screen.getByRole('button', { name: '' }) // play button has no text
     const playButton = document.querySelector('button svg')?.closest('button')
     fireEvent.click(playButton || document.querySelector('button')!)
     expect(onTogglePlay).toHaveBeenCalled()

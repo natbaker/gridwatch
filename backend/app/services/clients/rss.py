@@ -91,29 +91,33 @@ class RSSClient:
                 resp.raise_for_status()
                 text = resp.text
 
-                # Extract video data from the page's embedded JSON
-                video_ids = []
+                # Collect unique videoIds in order of first appearance
+                video_ids: list[str] = []
+                seen_ids: set[str] = set()
                 for m in re.finditer(r'"videoId":"([a-zA-Z0-9_-]{11})"', text):
                     vid_id = m.group(1)
-                    if vid_id not in video_ids:
+                    if vid_id not in seen_ids:
+                        seen_ids.add(vid_id)
                         video_ids.append(vid_id)
 
-                # Extract titles — they appear near videoId in the JSON
+                # For each videoId, find its title by searching in a nearby window.
+                # YouTube's JSON puts title either before or after videoId, so we
+                # search ±500 chars rather than assuming a fixed order.
                 titles: dict[str, str] = {}
-                for m in re.finditer(
-                    r'"videoId":"([a-zA-Z0-9_-]{11})".*?"title":\{"runs":\[\{"text":"([^"]+)"\}',
-                    text,
-                ):
-                    vid_id, title = m.group(1), m.group(2)
-                    if vid_id not in titles:
-                        titles[vid_id] = title
+                for vid_id in video_ids:
+                    pos = text.find(f'"videoId":"{vid_id}"')
+                    if pos == -1:
+                        continue
+                    window = text[max(0, pos - 500):pos + 700]
+                    m = re.search(r'"title":\{"runs":\[\{"text":"([^"]{5,})"', window)
+                    if m:
+                        titles[vid_id] = m.group(1)
 
                 count = 0
                 for vid_id in video_ids:
                     title = titles.get(vid_id, "")
                     if not title:
                         continue
-                    # Skip Shorts (titles often indicate, or we can check by URL pattern)
                     all_videos.append({
                         "title": title,
                         "url": f"https://www.youtube.com/watch?v={vid_id}",
