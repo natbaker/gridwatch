@@ -1,4 +1,5 @@
 import html
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -91,42 +92,54 @@ class RSSClient:
                 resp.raise_for_status()
                 text = resp.text
 
-                # Collect unique videoIds in order of first appearance
-                video_ids: list[str] = []
-                seen_ids: set[str] = set()
-                for m in re.finditer(r'"videoId":"([a-zA-Z0-9_-]{11})"', text):
-                    vid_id = m.group(1)
-                    if vid_id not in seen_ids:
-                        seen_ids.add(vid_id)
-                        video_ids.append(vid_id)
+                # Parse ytInitialData to extract videos from the grid
+                yt_match = re.search(r"var ytInitialData = ({.*?});</script>", text, re.DOTALL)
+                if not yt_match:
+                    logger.warning(f"ytInitialData not found for {name}")
+                    continue
+                yt_data = json.loads(yt_match.group(1))
 
-                # For each videoId, find its title by searching in a nearby window.
-                # YouTube's JSON puts title either before or after videoId, so we
-                # search ±500 chars rather than assuming a fixed order.
-                titles: dict[str, str] = {}
-                for vid_id in video_ids:
-                    pos = text.find(f'"videoId":"{vid_id}"')
-                    if pos == -1:
-                        continue
-                    window = text[max(0, pos - 500):pos + 700]
-                    m = re.search(r'"title":\{"runs":\[\{"text":"([^"]{5,})"', window)
-                    if m:
-                        titles[vid_id] = m.group(1)
-
+                tabs = (
+                    yt_data.get("contents", {})
+                    .get("twoColumnBrowseResultsRenderer", {})
+                    .get("tabs", [])
+                )
                 count = 0
-                for vid_id in video_ids:
-                    title = titles.get(vid_id, "")
-                    if not title:
+                for tab in tabs:
+                    grid = (
+                        tab.get("tabRenderer", {})
+                        .get("content", {})
+                        .get("richGridRenderer", {})
+                    )
+                    grid_items = grid.get("contents", [])
+                    if not grid_items:
                         continue
-                    all_videos.append({
-                        "title": title,
-                        "url": f"https://www.youtube.com/watch?v={vid_id}",
-                        "video_id": vid_id,
-                        "thumbnail": f"https://i.ytimg.com/vi/{vid_id}/mqdefault.jpg",
-                        "published_utc": None,
-                        "channel": name,
-                    })
-                    count += 1
+                    for grid_item in grid_items:
+                        lvm = (
+                            grid_item.get("richItemRenderer", {})
+                            .get("content", {})
+                            .get("lockupViewModel", {})
+                        )
+                        vid_id = lvm.get("contentId", "")
+                        title = (
+                            lvm.get("metadata", {})
+                            .get("lockupMetadataViewModel", {})
+                            .get("title", {})
+                            .get("content", "")
+                        )
+                        if not vid_id or not title:
+                            continue
+                        all_videos.append({
+                            "title": title,
+                            "url": f"https://www.youtube.com/watch?v={vid_id}",
+                            "video_id": vid_id,
+                            "thumbnail": f"https://i.ytimg.com/vi/{vid_id}/mqdefault.jpg",
+                            "published_utc": None,
+                            "channel": name,
+                        })
+                        count += 1
+                        if count >= count_per_channel:
+                            break
                     if count >= count_per_channel:
                         break
             except Exception:
