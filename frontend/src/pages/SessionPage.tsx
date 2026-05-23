@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useLiveTiming } from '../hooks/useLiveTiming'
@@ -114,6 +114,23 @@ export function SessionPage() {
   )
 
   const [resultsTab, setResultsTab] = useState<'race' | 'qualifying'>('race')
+  const didLiveSeekRef = useRef(false)
+
+  // Auto-start replay when live so controls appear without the user needing to click REPLAY
+  useEffect(() => {
+    if (isLive && !replayStarted) {
+      setReplayStarted(true)
+    }
+  }, [isLive, replayStarted])
+
+  // When replay first becomes ready during a live session, jump to the live position
+  useEffect(() => {
+    if (isLive && replayStarted && replay.isReady && !didLiveSeekRef.current) {
+      didLiveSeekRef.current = true
+      replay.seekToLive()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive, replayStarted, replay.isReady])
 
   // Lap comparison hooks must be before early returns (Rules of Hooks)
   const compareSessionKey = resultsTab === 'qualifying' ? qualifyingSessionKey : effectiveSessionKey
@@ -244,7 +261,7 @@ export function SessionPage() {
                 {sessionName?.toUpperCase() || 'SESSION'}
               </h1>
               {isLive && <LiveBadge />}
-              {replayStarted && hasReplay && (
+              {replayStarted && hasReplay && !isLive && (
                 <span className="text-[10px] font-mono bg-bg-elevated text-text-tertiary px-2 py-0.5 rounded">REPLAY</span>
               )}
             </div>
@@ -291,11 +308,13 @@ export function SessionPage() {
           currentTime={replay.currentTime} totalDuration={replay.totalDuration}
           onTogglePlay={replay.togglePlay} onSetSpeed={replay.setSpeed}
           onSeek={replay.seek} lapTimes={replay.lapTimes}
+          isLive={replay.isLive} liveOffset={replay.liveOffset}
+          onSeekToLive={replay.seekToLive}
         />
       )}
 
-      {/* Start replay */}
-      {!replayStarted && canReplay && (
+      {/* Start replay — hidden for live sessions (auto-started) */}
+      {!replayStarted && canReplay && !isLive && (
         <div className="bg-bg-card border border-border rounded-xl px-4 py-4 flex items-center justify-center">
           <button onClick={() => setReplayStarted(true)} className="text-xs text-accent hover:text-accent/80 font-medium">
             REPLAY ▶

@@ -35,6 +35,8 @@ export interface TrackWeather {
 export interface ReplayState {
   isReady: boolean
   isPlaying: boolean
+  isLive: boolean
+  liveOffset: number | null
   speed: number
   currentTime: number
   totalDuration: number
@@ -60,6 +62,7 @@ export interface ReplayState {
   togglePlay: () => void
   setSpeed: (s: number) => void
   seek: (t: number) => void
+  seekToLive: () => void
 }
 
 export function useReplay(sessionKey: number | undefined): ReplayState {
@@ -87,6 +90,7 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
     queryKey: ['replayInfo', sessionKey],
     queryFn: () => api.getReplayInfo(sessionKey!),
     enabled: !!sessionKey,
+    refetchInterval: (query) => query.state.data?.is_live ? 15000 : false,
   })
 
   const dataStart = info?.data_start ?? ''
@@ -94,9 +98,11 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
   const rawDuration = dataStart && dataEnd
     ? (new Date(dataEnd).getTime() - new Date(dataStart).getTime()) / 1000
     : 0
-  // Cap duration at last meaningful event (last lap + 30s buffer) to avoid dead space
+  // For finished sessions, cap at last lap + 30s to avoid dead space at the end.
+  // For live sessions, use full planned duration so the timebar has room for new laps.
   const lastLapT = info?.lap_events?.length ? info.lap_events[info.lap_events.length - 1].t : 0
-  const totalDuration = lastLapT > 0 ? Math.min(rawDuration, lastLapT + 30) : rawDuration
+  const isLive = !!info?.is_live
+  const totalDuration = (lastLapT > 0 && !isLive) ? Math.min(rawDuration, lastLapT + 30) : rawDuration
 
   const drivers = info?.drivers ?? {}
 
@@ -321,9 +327,21 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
     }
   }, [totalDuration, fetchChunk])
 
+  const liveOffset = isLive && dataStart
+    ? Math.min((Date.now() - new Date(dataStart).getTime()) / 1000, totalDuration)
+    : null
+
+  const seekToLive = useCallback(() => {
+    if (!dataStart) return
+    const offset = Math.min((Date.now() - new Date(dataStart).getTime()) / 1000, totalDuration)
+    seek(offset)
+  }, [dataStart, totalDuration, seek])
+
   return {
     isReady: !!info && hasPositions,
     isPlaying,
+    isLive,
+    liveOffset,
     speed,
     currentTime,
     totalDuration,
@@ -359,5 +377,6 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
     },
     setSpeed,
     seek,
+    seekToLive,
   }
 }

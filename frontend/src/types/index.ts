@@ -278,6 +278,7 @@ export interface ReplayInfo {
   session_key: number
   session_name: string
   circuit: string
+  is_live: boolean
   data_start: string
   data_end: string
   track_path: string

@@ -775,6 +775,20 @@ class LiveTimingFacade:
             return {"error": "No session start time"}
 
         start_dt = datetime.fromisoformat(data_start)
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+
+        is_live = False
+        try:
+            now = datetime.now(timezone.utc)
+            end_str = session.get("date_end", data_end)
+            if end_str:
+                end_dt = datetime.fromisoformat(end_str)
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.replace(tzinfo=timezone.utc)
+                is_live = start_dt <= now <= end_dt
+        except Exception:
+            pass
 
         # Fetch all replay data in parallel.
         # Use direct MongoDB queries to bypass openf1-api's _key deduplication, which
@@ -982,6 +996,7 @@ class LiveTimingFacade:
             "session_key": session_key,
             "session_name": session.get("session_name", ""),
             "circuit": session.get("circuit_short_name", ""),
+            "is_live": is_live,
             "data_start": data_start,
             "data_end": data_end,
             "track_path": bounds.get("track_path", ""),

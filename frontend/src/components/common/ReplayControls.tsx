@@ -7,6 +7,9 @@ interface ReplayControlsProps {
   onSetSpeed: (speed: number) => void
   onSeek: (time: number) => void
   lapTimes?: { t: number; lap: number }[]
+  isLive?: boolean
+  liveOffset?: number | null
+  onSeekToLive?: () => void
 }
 
 function formatTime(seconds: number): string {
@@ -28,8 +31,15 @@ export function ReplayControls({
   onSetSpeed,
   onSeek,
   lapTimes,
+  isLive,
+  liveOffset,
+  onSeekToLive,
 }: ReplayControlsProps) {
   const progress = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0
+  const livePct = isLive && liveOffset != null && totalDuration > 0
+    ? (liveOffset / totalDuration) * 100
+    : null
+  const atLive = livePct != null && Math.abs(currentTime - (liveOffset ?? 0)) < 15
 
   return (
     <div className="bg-bg-elevated rounded-lg px-3 py-2">
@@ -96,6 +106,13 @@ export function ReplayControls({
             className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ left: `${progress}%`, marginLeft: -6 }}
           />
+          {livePct != null && (
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-red-500 rounded-full"
+              style={{ left: `${livePct}%` }}
+              title="Live"
+            />
+          )}
         </div>
       </div>
 
@@ -104,6 +121,18 @@ export function ReplayControls({
         {formatTime(totalDuration)}
       </span>
 
+      {isLive && onSeekToLive && (
+        <button
+          onClick={onSeekToLive}
+          className={`px-2 py-0.5 rounded text-[10px] font-mono flex-shrink-0 transition-colors ${
+            atLive
+              ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+              : 'text-text-tertiary hover:text-red-400 hover:bg-red-500/10 border border-border'
+          }`}
+        >
+          {atLive ? '● LIVE' : '→ LIVE'}
+        </button>
+      )}
       <div className="hidden sm:flex gap-1 flex-shrink-0">
         {SPEEDS.map((s) => (
           <button
