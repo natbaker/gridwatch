@@ -318,6 +318,37 @@ def _make_key_lookup_facade(meetings=None, sessions=None):
 
 
 @pytest.mark.asyncio
+async def test_get_live_session_returns_stale_when_openf1_blocked():
+    """When OpenF1 returns empty (e.g. 401 during a live session), stale cache is used."""
+    cache = TTLCache()
+    stale_session = {
+        "session_key": 9999,
+        "session_name": "Race",
+        "session_type": "Race",
+        "circuit": "Test",
+        "country": "Testland",
+        "date_start": "2026-06-06T14:00:00+00:00",
+        "date_end": "2026-06-06T16:00:00+00:00",
+        "is_live": True,
+    }
+    import time
+    # Seed an already-expired cache entry directly (bypassing set's pruning)
+    cache._store["live_session_info"] = (stale_session, time.monotonic() - 100)
+
+    openf1 = AsyncMock()
+    openf1.get_sessions.return_value = []  # 401 → empty list
+    facade = LiveTimingFacade(openf1=openf1, cache=cache)
+
+    result = await facade.get_live_session()
+
+    assert result is not None
+    assert result["session_key"] == 9999
+    assert result["is_live"] is True
+
+
+# ── get_session_key_for_round ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
 async def test_session_key_prefers_session_name_over_type():
     """session_name='Race' beats session_type='Race' (Sprint disambiguation).
 

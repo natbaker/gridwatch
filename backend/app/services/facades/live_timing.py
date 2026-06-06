@@ -137,6 +137,9 @@ class LiveTimingFacade:
             return self._cache.get_stale("live_session_info")
 
         if not sessions:
+            stale = self._cache.get_stale("live_session_info")
+            if stale:
+                return stale
             return None
 
         now = datetime.now(timezone.utc)
@@ -225,6 +228,17 @@ class LiveTimingFacade:
                     warnings.append(warning_msg)
                 return []
 
+        from app.services import mongo_direct
+
+        async def _fetch_with_mongo(collection: str, api_fn, warning_msg: str | None = None):
+            try:
+                docs = await mongo_direct.query_session(collection, session_key)
+                if docs:
+                    return docs
+            except Exception:
+                pass
+            return await _safe_fetch(api_fn(), warning_msg)
+
         (
             drivers_raw,
             positions_raw,
@@ -233,12 +247,12 @@ class LiveTimingFacade:
             stints_raw,
             pit_raw,
         ) = await asyncio.gather(
-            _safe_fetch(self._openf1.get_drivers(session_key), "Driver data unavailable"),
-            _safe_fetch(self._openf1.get_positions(session_key)),
-            _safe_fetch(self._openf1.get_intervals(session_key)),
-            _safe_fetch(self._openf1.get_laps(session_key)),
-            _safe_fetch(self._openf1.get_stints(session_key)),
-            _safe_fetch(self._openf1.get_pit_stops(session_key)),
+            _fetch_with_mongo("drivers", lambda: self._openf1.get_drivers(session_key), "Driver data unavailable"),
+            _fetch_with_mongo("position", lambda: self._openf1.get_positions(session_key)),
+            _fetch_with_mongo("intervals", lambda: self._openf1.get_intervals(session_key)),
+            _fetch_with_mongo("laps", lambda: self._openf1.get_laps(session_key)),
+            _fetch_with_mongo("stints", lambda: self._openf1.get_stints(session_key)),
+            _fetch_with_mongo("pit", lambda: self._openf1.get_pit_stops(session_key)),
         )
 
         if not drivers_raw and not positions_raw:
@@ -281,9 +295,11 @@ class LiveTimingFacade:
         for iv in intervals_raw:
             num = iv.get("driver_number")
             if num is not None:
+                gap = iv.get("gap_to_leader")
+                ivl = iv.get("interval")
                 latest_intervals[num] = {
-                    "gap_to_leader": iv.get("gap_to_leader"),
-                    "interval": iv.get("interval"),
+                    "gap_to_leader": gap if isinstance(gap, (int, float)) else None,
+                    "interval": ivl if isinstance(ivl, (int, float)) else None,
                 }
 
         # Latest lap per driver + best lap
