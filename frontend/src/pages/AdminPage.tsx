@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { MeetingDataStatus, SessionDataStatus } from '../types'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1].filter(y => y >= 2023)
+
+type RefreshState = 'queued' | 'error' | null
 
 function StatusDot({ active, label }: { active: boolean; label: string }) {
   return (
@@ -20,17 +22,56 @@ function StatusDot({ active, label }: { active: boolean; label: string }) {
 }
 
 function SessionRow({ session }: { session: SessionDataStatus }) {
+  const queryClient = useQueryClient()
+  const [refreshState, setRefreshState] = useState<RefreshState>(null)
+  const [pending, setPending] = useState(false)
   const date = session.date_start
     ? new Date(session.date_start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : '—'
+
+  const hasData = session.has_positions || session.has_laps || session.has_radio
+
+  const requestRefresh = async () => {
+    if (pending) return
+    if (hasData && !window.confirm(`"${session.session_name}" already has data. Clear it and re-download on the next refresh run?`)) {
+      return
+    }
+    setPending(true)
+    try {
+      const resp = await fetch(`/api/sessions/${session.session_key}/refresh`, { method: 'POST' })
+      if (resp.ok) {
+        setRefreshState('queued')
+        queryClient.invalidateQueries({ queryKey: ['sessionsStatus'] })
+      } else {
+        setRefreshState('error')
+      }
+    } catch {
+      setRefreshState('error')
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
-    <div className="flex items-center gap-3 py-1.5 border-b border-border/40 last:border-0">
+    <div
+      onClick={requestRefresh}
+      title="Click to clear and re-download this session's data"
+      className={`flex items-center gap-3 py-1.5 border-b border-border/40 last:border-0 -mx-2 px-2 rounded transition-colors ${
+        pending ? 'cursor-wait' : 'cursor-pointer hover:bg-bg-elevated'
+      }`}
+    >
       <span className="w-24 text-xs font-mono text-text-secondary truncate">{session.session_name}</span>
       <span className="w-16 text-[10px] text-text-tertiary font-mono">{date}</span>
-      <div className="flex gap-1.5 flex-wrap">
+      <div className="flex items-center gap-1.5 flex-wrap">
         <StatusDot active={session.has_positions} label="Replay" />
         <StatusDot active={session.has_laps} label="Timing" />
         <StatusDot active={session.has_radio} label="Radio" />
+        {refreshState === 'queued' && (
+          <span className="text-[10px] text-accent font-mono">Queued for refresh</span>
+        )}
+        {refreshState === 'error' && (
+          <span className="text-[10px] text-red-400 font-mono">Refresh failed</span>
+        )}
       </div>
     </div>
   )

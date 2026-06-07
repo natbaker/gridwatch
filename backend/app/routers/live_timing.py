@@ -90,6 +90,19 @@ async def get_import_status(session_key: int):
     return telemetry_import.get_status(session_key)
 
 
+@router.post("/sessions/{session_key}/refresh")
+async def refresh_session_data(request: Request, session_key: int):
+    """Clear a session's stored data so the nightly gap_fill run re-imports it fresh."""
+    from app.config import settings
+    from app.services import mongo_direct
+    if not settings.mongo_connection_string:
+        raise HTTPException(status_code=503, detail="MongoDB not configured (set GRIDWATCH_MONGO_CONNECTION_STRING)")
+    ok = await mongo_direct.purge_session(session_key)
+    if not ok:
+        raise HTTPException(status_code=502, detail="Failed to clear session data")
+    return {"status": "queued", "session_key": session_key}
+
+
 @router.get("/sessions-status")
 async def get_sessions_data_status(request: Request, year: int = Query(...)):
     facade = request.app.state.live_timing_facade
