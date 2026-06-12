@@ -33,6 +33,14 @@ TIRE_SHORT = {
 }
 
 
+def _parse_dt(value: str | datetime) -> datetime:
+    """Parse a date that may be an ISO string (OpenF1 API) or a native
+    datetime (pymongo's BSON decoding from mongo_direct), returning UTC-aware."""
+    dt = datetime.fromisoformat(value) if isinstance(value, str) else value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
 
 class LiveTimingFacade:
     def __init__(self, openf1: OpenF1Client, cache: TTLCache, http_client: httpx.AsyncClient | None = None) -> None:
@@ -850,7 +858,7 @@ class LiveTimingFacade:
             num = p.get("driver_number")
             pos = p.get("position")
             if date and num and pos:
-                t = (datetime.fromisoformat(date) - start_dt).total_seconds()
+                t = (_parse_dt(date) - start_dt).total_seconds()
                 if t >= 0:
                     position_events.append({"t": round(t, 1), "n": num, "p": pos})
 
@@ -861,7 +869,7 @@ class LiveTimingFacade:
             num = iv.get("driver_number")
             if not date or not num:
                 continue
-            t = (datetime.fromisoformat(date) - start_dt).total_seconds()
+            t = (_parse_dt(date) - start_dt).total_seconds()
             if t < 0:
                 continue
             intervals_parsed.append((t, num, iv.get("gap_to_leader"), iv.get("interval")))
@@ -887,7 +895,7 @@ class LiveTimingFacade:
             date = rc.get("date")
             if not date:
                 continue
-            t = (datetime.fromisoformat(date) - start_dt).total_seconds()
+            t = (_parse_dt(date) - start_dt).total_seconds()
             category = rc.get("category", "")
             flag = rc.get("flag")
             message = rc.get("message", "")
@@ -917,7 +925,7 @@ class LiveTimingFacade:
             if lap_num in seen_laps:
                 continue
             seen_laps.add(lap_num)
-            t = (datetime.fromisoformat(date) - start_dt).total_seconds()
+            t = (_parse_dt(date) - start_dt).total_seconds()
             if t >= 0:
                 lap_events.append({"t": round(t, 1), "lap": lap_num})
         lap_events.sort(key=lambda e: e["t"])
@@ -937,7 +945,7 @@ class LiveTimingFacade:
             date = w.get("date")
             if not date:
                 continue
-            t = (datetime.fromisoformat(date) - start_dt).total_seconds()
+            t = (_parse_dt(date) - start_dt).total_seconds()
             if t < 0:
                 continue
             weather_events.append({
@@ -987,7 +995,7 @@ class LiveTimingFacade:
             duration = p.get("pit_duration")
             if not date or not num:
                 continue
-            t = (datetime.fromisoformat(date) - start_dt).total_seconds()
+            t = (_parse_dt(date) - start_dt).total_seconds()
             if t < 0:
                 continue
             pit_events.append({
@@ -1010,7 +1018,7 @@ class LiveTimingFacade:
             url = r.get("recording_url")
             if not date or not num or not url:
                 continue
-            t = (datetime.fromisoformat(date) - start_dt).total_seconds()
+            t = (_parse_dt(date) - start_dt).total_seconds()
             if t >= 0:
                 radio_events.append({"t": round(t, 1), "n": num, "url": url})
 
