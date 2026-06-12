@@ -389,7 +389,13 @@ class LiveTimingFacade:
                 "pit_count": sum(1 for p in pit_raw if p.get("driver_number") == num),
             })
 
-        timing_entries.sort(key=lambda x: x["position"] if x["position"] > 0 else 999)
+        session_type = (session_info or {}).get("session_type", "")
+        if session_type in ("Practice", "Qualifying"):
+            # Position data is unreliable/absent for practice and qualifying —
+            # rank by fastest lap instead, with no-time drivers at the bottom.
+            timing_entries.sort(key=lambda x: x["best_lap"] if x["best_lap"] is not None else float("inf"))
+        else:
+            timing_entries.sort(key=lambda x: x["position"] if x["position"] > 0 else 999)
 
         # Build pit stop log — group consecutive laps per driver into one stop
         # (OpenF1 emits one record per lap the car spends in the pit lane)

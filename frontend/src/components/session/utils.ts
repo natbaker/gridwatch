@@ -30,3 +30,10 @@ export const FLAG_STYLES: Record<string, { bg: string; text: string; label: stri
 }
 
 export const MEDAL = ['\u{1F947}', '\u{1F948}', '\u{1F949}']
+
+// Replay standings start as [] until replay info has loaded (e.g. no GPS data
+// yet at the start of a live session), so an empty array must still fall back
+// to live timing drivers.
+export function pickStandingRows<T>(replayStandings: T[] | undefined, liveDrivers: T[]): T[] {
+  return replayStandings && replayStandings.length > 0 ? replayStandings : liveDrivers
+}

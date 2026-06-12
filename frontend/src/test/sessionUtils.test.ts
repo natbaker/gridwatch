@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatLapTime, formatGap, windDir } from '../components/session/utils'
+import { formatLapTime, formatGap, windDir, pickStandingRows } from '../components/session/utils'
 
 describe('formatLapTime', () => {
   it('returns dash for null', () => {
@@ -68,5 +68,23 @@ describe('windDir', () => {
 
   it('returns N for 360 degrees (wraps)', () => {
     expect(windDir(360)).toBe('N')
+  })
+})
+
+describe('pickStandingRows', () => {
+  it('falls back to live drivers when replay standings is an empty array', () => {
+    const liveDrivers = [{ driver_number: 1 }, { driver_number: 2 }]
+    expect(pickStandingRows([], liveDrivers)).toBe(liveDrivers)
+  })
+
+  it('falls back to live drivers when replay standings is undefined', () => {
+    const liveDrivers = [{ driver_number: 1 }]
+    expect(pickStandingRows(undefined, liveDrivers)).toBe(liveDrivers)
+  })
+
+  it('uses replay standings when they have entries', () => {
+    const replayStandings = [{ driver_number: 5 }]
+    const liveDrivers = [{ driver_number: 1 }]
+    expect(pickStandingRows(replayStandings, liveDrivers)).toBe(replayStandings)
   })
 })
