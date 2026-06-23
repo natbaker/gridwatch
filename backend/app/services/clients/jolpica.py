@@ -3,19 +3,32 @@ import logging
 
 import httpx
 
+from app.services.circuit_breaker import CircuitBreaker
+
 logger = logging.getLogger(__name__)
 
 
 class JolpicaClient:
-    def __init__(self, http_client: httpx.AsyncClient, semaphore: asyncio.Semaphore) -> None:
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient,
+        semaphore: asyncio.Semaphore,
+        breaker: CircuitBreaker | None = None,
+    ) -> None:
         self._http = http_client
         self._sem = semaphore
+        self._breaker = breaker
 
     async def _get(self, path: str) -> dict:
-        async with self._sem:
-            resp = await self._http.get(path)
-            resp.raise_for_status()
-            return resp.json()
+        async def _do() -> dict:
+            async with self._sem:
+                resp = await self._http.get(path)
+                resp.raise_for_status()
+                return resp.json()
+
+        if self._breaker:
+            return await self._breaker.call(_do)
+        return await _do()
 
     async def get_schedule(self, season: int) -> list[dict]:
         data = await self._get(f"/{season}.json")

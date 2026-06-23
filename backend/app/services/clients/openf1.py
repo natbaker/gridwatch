@@ -3,20 +3,39 @@ import logging
 
 import httpx
 
+from app.services.circuit_breaker import CircuitBreaker, CircuitOpenError
+
 logger = logging.getLogger(__name__)
 
 
 class OpenF1Client:
-    def __init__(self, http_client: httpx.AsyncClient, fallback_client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient,
+        fallback_client: httpx.AsyncClient | None = None,
+        breaker: CircuitBreaker | None = None,
+    ) -> None:
         self._http = http_client
         self._fallback = fallback_client
+        self._breaker = breaker
 
     async def _get(self, path: str, params: dict | None = None) -> list[dict]:
-        result = await self._fetch(self._http, path, params, is_fallback=False)
+        try:
+            result = await self._call_primary(path, params)
+        except CircuitOpenError:
+            logger.debug("OpenF1 primary circuit open for %s, using fallback", path)
+            result = []
         if not result and self._fallback:
             logger.debug("Local OpenF1 empty for %s, trying fallback", path)
             result = await self._fetch(self._fallback, path, params, is_fallback=True)
         return result
+
+    async def _call_primary(self, path: str, params: dict | None) -> list[dict]:
+        if self._breaker:
+            return await self._breaker.call(
+                lambda: self._fetch(self._http, path, params, is_fallback=False)
+            )
+        return await self._fetch(self._http, path, params, is_fallback=False)
 
     async def _fetch(self, client: httpx.AsyncClient, path: str, params: dict | None, is_fallback: bool = False) -> list[dict]:
         attempts = 1 if is_fallback else 4
