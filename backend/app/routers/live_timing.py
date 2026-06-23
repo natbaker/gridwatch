@@ -1,12 +1,59 @@
+import asyncio
+import json
+from collections.abc import AsyncIterator, Awaitable, Callable
+
 from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/api")
+
+# Server pushes a fresh timing frame this often (seconds); short while live.
+_STREAM_INTERVAL_LIVE = 5
+_STREAM_INTERVAL_IDLE = 30
+
+
+async def _timing_event_stream(
+    facade,
+    session_key: int | None,
+    is_disconnected: Callable[[], Awaitable[bool]],
+    *,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    max_events: int | None = None,
+) -> AsyncIterator[str]:
+    """Yield Server-Sent Events of timing data until the client disconnects.
+
+    Server-side polling so the browser holds one connection instead of polling
+    on a timer. ``sleep``/``max_events`` are injectable for tests.
+    """
+    count = 0
+    while True:
+        if await is_disconnected():
+            break
+        data = await facade.get_timing_data(session_key)
+        yield f"data: {json.dumps(data)}\n\n"
+        count += 1
+        if max_events is not None and count >= max_events:
+            break
+        session = data.get("session") or {}
+        interval = _STREAM_INTERVAL_LIVE if session.get("is_live") else _STREAM_INTERVAL_IDLE
+        await sleep(interval)
 
 
 @router.get("/live-timing")
 async def get_live_timing(request: Request, session_key: int | None = Query(None)):
     facade = request.app.state.live_timing_facade
     return await facade.get_timing_data(session_key)
+
+
+@router.get("/live-timing/stream")
+async def stream_live_timing(request: Request, session_key: int | None = Query(None)):
+    facade = request.app.state.live_timing_facade
+    generator = _timing_event_stream(facade, session_key, request.is_disconnected)
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/live-timing/session")

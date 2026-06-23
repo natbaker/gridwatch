@@ -4,8 +4,8 @@ from collections import defaultdict
 
 from app.cache import TTLCache
 from app.config import settings
+from app.constants import TEAM_COLORS
 from app.services.clients.jolpica import JolpicaClient
-from app.services.facades.standings import TEAM_COLORS
 
 logger = logging.getLogger(__name__)
 

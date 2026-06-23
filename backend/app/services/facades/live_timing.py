@@ -6,31 +6,17 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from app import metrics
 from app.cache import TTLCache
+from app.constants import TEAM_COLORS, TIRE_COLORS, TIRE_SHORT
 from app.services.circuit_geometry import (
     SVG_WIDTH, SVG_HEIGHT, SVG_PADDING,
     CIRCUIT_KEYS, gps_to_svg, build_bounds_from_circuit_info,
 )
 from app.services.clients.openf1 import OpenF1Client
-from app.services.facades.standings import TEAM_COLORS
+from app.services.session_status import is_live as _is_live
 
 logger = logging.getLogger(__name__)
-
-TIRE_COLORS = {
-    "SOFT": "#FF3333",
-    "MEDIUM": "#FFD700",
-    "HARD": "#CCCCCC",
-    "INTERMEDIATE": "#39B54A",
-    "WET": "#0072CE",
-}
-
-TIRE_SHORT = {
-    "SOFT": "S",
-    "MEDIUM": "M",
-    "HARD": "H",
-    "INTERMEDIATE": "I",
-    "WET": "W",
-}
 
 
 def _parse_dt(value: str | datetime) -> datetime:
@@ -159,7 +145,7 @@ class LiveTimingFacade:
             end_str = s.get("date_end")
             end = datetime.fromisoformat(end_str) if end_str else None
 
-            if end and start <= now <= end:
+            if _is_live(s["date_start"], end_str, now):
                 live = s
                 break
 
@@ -183,6 +169,7 @@ class LiveTimingFacade:
             "date_end": chosen.get("date_end"),
             "is_live": live is not None,
         }
+        metrics.set_live_session(live is not None)
         self._cache.set("live_session_info", result, 30)
         return result
 
@@ -209,10 +196,6 @@ class LiveTimingFacade:
                 sessions = await self._openf1.get_sessions(session_key=str(session_key))
                 if sessions:
                     s = sessions[0]
-                    now = datetime.now(timezone.utc)
-                    start = datetime.fromisoformat(s["date_start"])
-                    end_str = s.get("date_end")
-                    end = datetime.fromisoformat(end_str) if end_str else None
                     session_info = {
                         "session_key": s["session_key"],
                         "session_name": s["session_name"],
@@ -221,7 +204,7 @@ class LiveTimingFacade:
                         "country": s.get("country_name", ""),
                         "date_start": s["date_start"],
                         "date_end": s.get("date_end"),
-                        "is_live": end is not None and start <= now <= end,
+                        "is_live": _is_live(s["date_start"], s.get("date_end")),
                     }
             except Exception as e:
                 logger.warning(f"Session info fetch failed: {e}")
@@ -335,14 +318,14 @@ class LiveTimingFacade:
                 if session_best_time is None or duration < session_best_time:
                     session_best_time = duration
 
-        # Latest stint per driver
-        latest_stints: dict[int, dict] = {}
+        # Stint history per driver (full strategy), and latest stint for the row.
+        stints_by_driver: dict[int, list[dict]] = defaultdict(list)
         for stint in stints_raw:
             num = stint.get("driver_number")
             if num is None:
                 continue
             compound = (stint.get("compound") or "").upper()
-            latest_stints[num] = {
+            stints_by_driver[num].append({
                 "compound": compound,
                 "compound_short": TIRE_SHORT.get(compound, "?"),
                 "compound_color": TIRE_COLORS.get(compound, "#888"),
@@ -350,7 +333,28 @@ class LiveTimingFacade:
                 "lap_start": stint.get("lap_start"),
                 "lap_end": stint.get("lap_end"),
                 "tyre_age": stint.get("tyre_age_at_start", 0),
-            }
+            })
+        latest_stints: dict[int, dict] = {}
+        for num, stints in stints_by_driver.items():
+            stints.sort(key=lambda s: s["stint_number"] or 0)
+            latest_stints[num] = stints[-1]
+
+        # Best sector times per driver and session-wide.
+        best_sectors_by_driver: dict[int, list[float | None]] = defaultdict(lambda: [None, None, None])
+        session_best_sectors: list[float | None] = [None, None, None]
+        for lap in laps_raw:
+            num = lap.get("driver_number")
+            if num is None:
+                continue
+            for i, key in enumerate(("duration_sector_1", "duration_sector_2", "duration_sector_3")):
+                val = lap.get(key)
+                if not isinstance(val, (int, float)) or val <= 0:
+                    continue
+                cur = best_sectors_by_driver[num][i]
+                if cur is None or val < cur:
+                    best_sectors_by_driver[num][i] = val
+                if session_best_sectors[i] is None or val < session_best_sectors[i]:
+                    session_best_sectors[i] = val
 
         # Assemble driver timing entries
         all_nums = set(driver_map.keys()) | set(latest_positions.keys())
@@ -390,6 +394,9 @@ class LiveTimingFacade:
                 "sector_1": lap.get("sector_1"),
                 "sector_2": lap.get("sector_2"),
                 "sector_3": lap.get("sector_3"),
+                "best_sector_1": best_sectors_by_driver.get(num, [None, None, None])[0],
+                "best_sector_2": best_sectors_by_driver.get(num, [None, None, None])[1],
+                "best_sector_3": best_sectors_by_driver.get(num, [None, None, None])[2],
                 "tire_compound": stint.get("compound", ""),
                 "tire_compound_short": stint.get("compound_short", ""),
                 "tire_compound_color": stint.get("compound_color", "#888"),
@@ -439,10 +446,30 @@ class LiveTimingFacade:
                 })
         pit_stops.sort(key=lambda x: x.get("date") or "", reverse=True)
 
+        # Strategy (stint history) ordered to match the timing standings.
+        strategy = []
+        for entry in timing_entries:
+            num = entry["driver_number"]
+            driver_stints = stints_by_driver.get(num)
+            if not driver_stints:
+                continue
+            strategy.append({
+                "driver_number": num,
+                "abbreviation": entry["abbreviation"],
+                "team_color": entry["team_color"],
+                "stints": driver_stints,
+            })
+
         result = {
             "session": session_info,
             "drivers": timing_entries,
             "pit_stops": pit_stops[:20],
+            "strategy": strategy,
+            "best_sectors": {
+                "sector_1": session_best_sectors[0],
+                "sector_2": session_best_sectors[1],
+                "sector_3": session_best_sectors[2],
+            },
             "session_best_lap": session_best_time,
             "total_laps": max((e.get("lap_number") or 0 for e in timing_entries), default=0),
             "warnings": warnings,
@@ -808,17 +835,7 @@ class LiveTimingFacade:
         if start_dt.tzinfo is None:
             start_dt = start_dt.replace(tzinfo=timezone.utc)
 
-        is_live = False
-        try:
-            now = datetime.now(timezone.utc)
-            end_str = session.get("date_end", data_end)
-            if end_str:
-                end_dt = datetime.fromisoformat(end_str)
-                if end_dt.tzinfo is None:
-                    end_dt = end_dt.replace(tzinfo=timezone.utc)
-                is_live = start_dt <= now <= end_dt
-        except Exception:
-            pass
+        is_live = _is_live(data_start, session.get("date_end", data_end), datetime.now(timezone.utc))
 
         # Fetch all replay data in parallel.
         # Use direct MongoDB queries to bypass openf1-api's _key deduplication, which
