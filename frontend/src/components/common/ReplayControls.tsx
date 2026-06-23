@@ -9,6 +9,7 @@ interface ReplayControlsProps {
   lapTimes?: { t: number; lap: number }[]
   radioEvents?: { t: number; n: number; url: string }[]
   driverMeta?: Record<string, { abbreviation: string; team_color: string }>
+  onSelectRadio?: (driverNumber: number, t: number) => void
   isLive?: boolean
   liveOffset?: number | null
   onSeekToLive?: () => void
@@ -35,6 +36,7 @@ export function ReplayControls({
   lapTimes,
   radioEvents,
   driverMeta,
+  onSelectRadio,
   isLive,
   liveOffset,
   onSeekToLive,
@@ -118,8 +120,12 @@ export function ReplayControls({
                 key={`radio-${idx}`}
                 className="absolute -top-2 -translate-x-1/2 w-1.5 h-1.5 rounded-full cursor-pointer opacity-80 hover:opacity-100 hover:scale-150 transition-all"
                 style={{ left: `${pct}%`, backgroundColor: meta?.team_color ?? '#aaa' }}
-                onClick={(e) => { e.stopPropagation(); onSeek(t) }}
-                title={`📻 ${meta?.abbreviation ?? `#${n}`} team radio`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (onSelectRadio) onSelectRadio(n, t)
+                  else onSeek(t)
+                }}
+                title={`📻 ${meta?.abbreviation ?? `#${n}`} team radio — click to follow`}
               />
             )
           })}

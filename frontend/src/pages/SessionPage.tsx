@@ -329,15 +329,16 @@ export function SessionPage() {
           onTogglePlay={replay.togglePlay} onSetSpeed={replay.setSpeed}
           onSeek={replay.seek} lapTimes={replay.lapTimes}
           radioEvents={replay.radioEvents} driverMeta={replay.driverMeta}
+          onSelectRadio={(n, t) => { replay.seek(t); follow.followDriver(n) }}
           isLive={replay.isLive} liveOffset={replay.liveOffset}
           onSeekToLive={replay.seekToLive}
         />
       )}
 
-      {/* Play all team radio */}
+      {/* Auto-play team radio as the playhead reaches each clip */}
       {replayStarted && hasReplay && replay.radioEvents.length > 0 && (
         <div className="flex justify-end">
-          <RadioPlayer radioEvents={replay.radioEvents} driverMeta={replay.driverMeta} />
+          <RadioPlayer radioEvents={replay.radioEvents} driverMeta={replay.driverMeta} currentTime={replay.currentTime} />
         </div>
       )}
 
