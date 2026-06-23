@@ -8,6 +8,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ de
 const CalendarPage = lazy(() => import('./pages/CalendarPage').then(m => ({ default: m.CalendarPage })))
 const SessionPage = lazy(() => import('./pages/SessionPage').then(m => ({ default: m.SessionPage })))
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then(m => ({ default: m.AnalyticsPage })))
+const DriverPage = lazy(() => import('./pages/DriverPage').then(m => ({ default: m.DriverPage })))
 const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m.AdminPage })))
 
 const queryClient = new QueryClient({
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="/race/:round" element={<SessionPage />} />
               <Route path="/live" element={<SessionPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/driver/:code" element={<DriverPage />} />
               <Route path="/admin" element={<AdminPage />} />
             </Route>
           </Routes>

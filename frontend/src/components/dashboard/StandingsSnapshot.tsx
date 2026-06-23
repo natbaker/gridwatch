@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useDriverStandings, useConstructorStandings } from '../../hooks/useStandings'
 import { LoadingSkeleton } from '../common/LoadingSkeleton'
 import { ErrorState } from '../common/ErrorState'
@@ -33,8 +34,8 @@ export function StandingsSnapshot({ type }: StandingsSnapshotProps) {
           const displayName = isDriver ? driverEntry.abbreviation : constructorEntry.constructor
           const color = entry.team_color
 
-          return (
-            <div key={entry.position} className="flex items-center gap-3 py-1.5">
+          const inner = (
+            <>
               <div className="w-1 h-8 rounded-full" style={{ backgroundColor: color }} />
               <span className="text-sm font-mono text-text-tertiary w-6">{entry.position}</span>
               <div className="flex-1 min-w-0">
@@ -44,6 +45,20 @@ export function StandingsSnapshot({ type }: StandingsSnapshotProps) {
                 )}
               </div>
               <span className="text-sm font-mono font-medium">{entry.points}</span>
+            </>
+          )
+
+          return isDriver ? (
+            <Link
+              key={entry.position}
+              to={`/driver/${driverEntry.abbreviation}`}
+              className="flex items-center gap-3 py-1.5 -mx-2 px-2 rounded-lg hover:bg-bg-elevated transition-colors"
+            >
+              {inner}
+            </Link>
+          ) : (
+            <div key={entry.position} className="flex items-center gap-3 py-1.5">
+              {inner}
             </div>
           )
         })}
