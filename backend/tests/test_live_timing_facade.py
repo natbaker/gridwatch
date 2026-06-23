@@ -93,6 +93,49 @@ async def test_drivers_sorted_by_position_ascending_zero_at_end():
 
 
 @pytest.mark.asyncio
+async def test_practice_session_sorted_by_fastest_lap():
+    """For Practice/Qualifying, position data is unreliable — sort by best lap instead,
+    with drivers who haven't set a time at the bottom."""
+    cache = TTLCache()
+    drivers = [
+        {"driver_number": 1, "name_acronym": "VER", "full_name": "M Verstappen",
+         "team_name": "Red Bull", "team_colour": "FF0000", "country_code": "NL"},
+        {"driver_number": 44, "name_acronym": "HAM", "full_name": "L Hamilton",
+         "team_name": "Ferrari", "team_colour": "FF2800", "country_code": "GB"},
+        {"driver_number": 63, "name_acronym": "RUS", "full_name": "G Russell",
+         "team_name": "Mercedes", "team_colour": "27F4D2", "country_code": "GB"},
+    ]
+    # All positions report 0 — typical for practice sessions
+    positions = [
+        {"driver_number": 1, "position": 0},
+        {"driver_number": 44, "position": 0},
+        {"driver_number": 63, "position": 0},
+    ]
+    laps = [
+        {"driver_number": 1, "lap_number": 5, "lap_duration": 91.5,
+         "is_pit_out_lap": False, "duration_sector_1": 30.0,
+         "duration_sector_2": 30.0, "duration_sector_3": 31.5},
+        {"driver_number": 44, "lap_number": 5, "lap_duration": 90.2,
+         "is_pit_out_lap": False, "duration_sector_1": 30.0,
+         "duration_sector_2": 30.0, "duration_sector_3": 30.2},
+        # RUS has no completed lap yet
+    ]
+    openf1 = _make_openf1_mock(drivers=drivers, positions=positions, laps=laps)
+    openf1.get_sessions.return_value = [
+        {"session_key": 9999, "session_name": "Practice 1", "session_type": "Practice",
+         "circuit_short_name": "Test", "country_name": "Testland",
+         "date_start": "2026-01-01T12:00:00+00:00", "date_end": "2026-01-01T14:00:00+00:00"}
+    ]
+    facade = LiveTimingFacade(openf1=openf1, cache=cache)
+
+    result = await facade.get_timing_data(session_key=9999)
+    nums = [d["driver_number"] for d in result["drivers"]]
+
+    # HAM (90.2s) fastest, VER (91.5s) second, RUS (no time) last
+    assert nums == [44, 1, 63]
+
+
+@pytest.mark.asyncio
 async def test_is_session_best_for_fastest_driver():
     """is_session_best is True only for the driver with the shortest lap time."""
     cache = TTLCache()
@@ -316,6 +359,37 @@ def _make_key_lookup_facade(meetings=None, sessions=None):
     openf1.get_sessions.return_value = sessions or []
     return LiveTimingFacade(openf1=openf1, cache=TTLCache())
 
+
+@pytest.mark.asyncio
+async def test_get_live_session_returns_stale_when_openf1_blocked():
+    """When OpenF1 returns empty (e.g. 401 during a live session), stale cache is used."""
+    cache = TTLCache()
+    stale_session = {
+        "session_key": 9999,
+        "session_name": "Race",
+        "session_type": "Race",
+        "circuit": "Test",
+        "country": "Testland",
+        "date_start": "2026-06-06T14:00:00+00:00",
+        "date_end": "2026-06-06T16:00:00+00:00",
+        "is_live": True,
+    }
+    import time
+    # Seed an already-expired cache entry directly (bypassing set's pruning)
+    cache._store["live_session_info"] = (stale_session, time.monotonic() - 100)
+
+    openf1 = AsyncMock()
+    openf1.get_sessions.return_value = []  # 401 → empty list
+    facade = LiveTimingFacade(openf1=openf1, cache=cache)
+
+    result = await facade.get_live_session()
+
+    assert result is not None
+    assert result["session_key"] == 9999
+    assert result["is_live"] is True
+
+
+# ── get_session_key_for_round ─────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_session_key_prefers_session_name_over_type():

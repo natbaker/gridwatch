@@ -10,7 +10,7 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
-RUN pip install --no-cache-dir fastapi uvicorn[standard] httpx pydantic pydantic-settings feedparser
+RUN pip install --no-cache-dir fastapi uvicorn[standard] httpx pydantic pydantic-settings feedparser pymongo
 
 COPY backend/ ./backend/
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist

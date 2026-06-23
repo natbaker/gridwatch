@@ -398,3 +398,64 @@ async def test_weather_not_downsampled_when_small():
             result = await facade.get_replay_info(9999)
 
     assert len(result["weather_events"]) == 10
+
+
+# ── Native datetime values from mongo_direct (pymongo BSON decoding) ──────────
+
+@pytest.mark.asyncio
+async def test_mongo_native_datetime_dates_are_handled():
+    """mongo_direct returns tz-naive datetime objects (not ISO strings) for
+    `date`/`date_start` fields — get_replay_info must not raise TypeError."""
+    session_start = "2026-05-25T13:00:00+00:00"
+    session_end = "2026-05-25T15:00:00+00:00"
+    facade = _make_facade(sessions=[_make_session_doc(session_start, session_end)])
+
+    start_dt = datetime(2026, 5, 25, 13, 0, 0)  # tz-naive, as pymongo decodes BSON dates
+
+    raw = {
+        "position": [
+            {"driver_number": 1, "position": 1, "date": start_dt + timedelta(seconds=100)},
+        ],
+        "intervals": [
+            {"driver_number": 1, "gap_to_leader": 1.0, "interval": 1.0,
+             "date": start_dt + timedelta(seconds=100)},
+        ],
+        "race_control": [
+            {"category": "Flag", "flag": "GREEN", "message": "GREEN LIGHT",
+             "date": start_dt + timedelta(seconds=50)},
+        ],
+        "laps": [
+            {"lap_number": 1, "driver_number": 1, "date_start": start_dt + timedelta(seconds=100)},
+        ],
+        "weather": [
+            {"date": start_dt + timedelta(seconds=10), "air_temperature": 25.0,
+             "track_temperature": 40.0, "humidity": 50.0, "wind_speed": 5.0,
+             "wind_direction": 180, "rainfall": 0},
+        ],
+        "pit": [
+            {"driver_number": 1, "lap_number": 5, "pit_duration": 2.5,
+             "date": start_dt + timedelta(minutes=10)},
+        ],
+        "team_radio": [
+            {"driver_number": 1, "recording_url": "http://example.com/radio.mp3",
+             "date": start_dt + timedelta(seconds=200)},
+        ],
+    }
+
+    async def mongo_side_effect(collection, session_key):
+        return raw.get(collection, [])
+
+    with patch("app.services.facades.live_timing.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 5, 25, 16, 0, 0, tzinfo=timezone.utc)
+        mock_dt.fromisoformat.side_effect = datetime.fromisoformat
+        with patch("app.services.mongo_direct.query_session", new=AsyncMock(side_effect=mongo_side_effect)):
+            result = await facade.get_replay_info(9999)
+
+    assert "error" not in result
+    assert result["position_events"] == [{"t": 100.0, "n": 1, "p": 1}]
+    assert result["interval_events"][0]["n"] == 1
+    assert result["lap_events"] == [{"t": 100.0, "lap": 1}]
+    assert result["race_control"][0]["message"] == "GREEN LIGHT"
+    assert result["weather_events"][0]["t"] == 10.0
+    assert result["pit_events"][0]["n"] == 1
+    assert result["radio_events"][0]["url"] == "http://example.com/radio.mp3"

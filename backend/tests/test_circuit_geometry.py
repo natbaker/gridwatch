@@ -7,9 +7,26 @@ from unittest.mock import MagicMock
 
 from app.services.circuit_geometry import (
     gps_to_svg, build_bounds_from_circuit_info,
-    SVG_WIDTH, SVG_HEIGHT, SVG_PADDING,
+    SVG_WIDTH, SVG_HEIGHT, SVG_PADDING, CIRCUIT_KEYS,
 )
 from app.cache import TTLCache
+
+
+# ── CIRCUIT_KEYS (derived from canonical circuit registry) ──────────────────────
+
+def test_circuit_keys_match_known_multiviewer_ids():
+    """CIRCUIT_KEYS is derived from app.circuits but must preserve the exact
+    multiviewer-id mapping used for track-geometry lookups."""
+    expected = {
+        "Albert Park": 1, "Shanghai": 2, "Suzuka": 46, "Sakhir": 3,
+        "Jeddah": 61, "Miami": 77, "Montreal": 7, "Monaco": 6,
+        "Barcelona": 4, "Spielberg": 14, "Silverstone": 9,
+        "Spa-Francorchamps": 13, "Budapest": 11, "Zandvoort": 63,
+        "Monza": 18, "Baku": 56, "Singapore": 23, "Austin": 69,
+        "Mexico City": 32, "São Paulo": 21, "Las Vegas": 79,
+        "Lusail": 78, "Yas Island": 24, "Madrid": 80,
+    }
+    assert CIRCUIT_KEYS == expected
 
 
 # ── gps_to_svg ────────────────────────────────────────────────────────────────

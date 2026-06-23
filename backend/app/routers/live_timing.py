@@ -1,12 +1,59 @@
+import asyncio
+import json
+from collections.abc import AsyncIterator, Awaitable, Callable
+
 from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/api")
+
+# Server pushes a fresh timing frame this often (seconds); short while live.
+_STREAM_INTERVAL_LIVE = 5
+_STREAM_INTERVAL_IDLE = 30
+
+
+async def _timing_event_stream(
+    facade,
+    session_key: int | None,
+    is_disconnected: Callable[[], Awaitable[bool]],
+    *,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    max_events: int | None = None,
+) -> AsyncIterator[str]:
+    """Yield Server-Sent Events of timing data until the client disconnects.
+
+    Server-side polling so the browser holds one connection instead of polling
+    on a timer. ``sleep``/``max_events`` are injectable for tests.
+    """
+    count = 0
+    while True:
+        if await is_disconnected():
+            break
+        data = await facade.get_timing_data(session_key)
+        yield f"data: {json.dumps(data)}\n\n"
+        count += 1
+        if max_events is not None and count >= max_events:
+            break
+        session = data.get("session") or {}
+        interval = _STREAM_INTERVAL_LIVE if session.get("is_live") else _STREAM_INTERVAL_IDLE
+        await sleep(interval)
 
 
 @router.get("/live-timing")
 async def get_live_timing(request: Request, session_key: int | None = Query(None)):
     facade = request.app.state.live_timing_facade
     return await facade.get_timing_data(session_key)
+
+
+@router.get("/live-timing/stream")
+async def stream_live_timing(request: Request, session_key: int | None = Query(None)):
+    facade = request.app.state.live_timing_facade
+    generator = _timing_event_stream(facade, session_key, request.is_disconnected)
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/live-timing/session")
@@ -88,6 +135,19 @@ async def trigger_import_telemetry(request: Request, session_key: int):
 async def get_import_status(session_key: int):
     from app.services import telemetry_import
     return telemetry_import.get_status(session_key)
+
+
+@router.post("/sessions/{session_key}/refresh")
+async def refresh_session_data(request: Request, session_key: int):
+    """Clear a session's stored data so the nightly gap_fill run re-imports it fresh."""
+    from app.config import settings
+    from app.services import mongo_direct
+    if not settings.mongo_connection_string:
+        raise HTTPException(status_code=503, detail="MongoDB not configured (set GRIDWATCH_MONGO_CONNECTION_STRING)")
+    ok = await mongo_direct.purge_session(session_key)
+    if not ok:
+        raise HTTPException(status_code=502, detail="Failed to clear session data")
+    return {"status": "queued", "session_key": session_key}
 
 
 @router.get("/sessions-status")

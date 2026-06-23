@@ -9,6 +9,7 @@ import { CockpitHUD } from '../common/CockpitHUD'
 import { FlagBanner } from './FlagBanner'
 import { MiniStandings } from './MiniStandings'
 import type { MiniStandingRow } from './MiniStandings'
+import { pickStandingRows } from './utils'
 
 export interface TrackMapPanelProps {
   circuit: string
@@ -46,15 +47,11 @@ export function TrackMapPanel({ circuit, sessionKey, drivers, replayCars, replay
   const effectiveCorners = corners ?? data?.corners
   const now = replayTime ?? 0
 
-  const standingRows: MiniStandingRow[] = replayStandings
-    ? replayStandings.map(s => ({
-        driver_number: s.driver_number, abbreviation: s.abbreviation,
-        team_color: s.team_color, position: s.position, interval: s.interval,
-      }))
-    : drivers.map(d => ({
-        driver_number: d.driver_number, abbreviation: d.abbreviation,
-        team_color: d.team_color, position: d.position, interval: d.interval,
-      }))
+  const standingsSource = pickStandingRows(replayStandings, drivers)
+  const standingRows: MiniStandingRow[] = standingsSource.map(s => ({
+    driver_number: s.driver_number, abbreviation: s.abbreviation,
+    team_color: s.team_color, position: s.position, interval: s.interval,
+  }))
 
   const [compareDriver, setCompareDriver] = useState<number | null>(null)
   const isComparing = followedDriver != null && compareDriver != null

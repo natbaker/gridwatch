@@ -1,14 +1,19 @@
 from contextlib import asynccontextmanager
 import asyncio
+import time
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import metrics
 from app.cache import TTLCache
 from app.config import settings
+from app.logging_config import configure_logging
+from app.observability import init_sentry
 from app.routers import health, results, schedule, standings, weather, news, live_timing, analytics, admin
+from app.services.circuit_breaker import CircuitBreaker
 from app.services.clients.jolpica import JolpicaClient
 from app.services.clients.openf1 import OpenF1Client
 from app.services.clients.openmeteo import OpenMeteoClient
@@ -24,12 +29,20 @@ from app.services.facades.analytics import AnalyticsFacade
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging(settings.log_level, settings.json_logs)
+    init_sentry(settings.sentry_dsn, release=settings.app_version)
+
     app.state.http_client = httpx.AsyncClient(timeout=10.0)
     app.state.cache = TTLCache()
 
     jolpica_client = JolpicaClient(
         httpx.AsyncClient(base_url=settings.jolpica_base_url, timeout=10.0, follow_redirects=True),
         asyncio.Semaphore(4),
+        breaker=CircuitBreaker(
+            name="jolpica",
+            failure_threshold=settings.circuit_breaker_threshold,
+            cooldown_seconds=settings.circuit_breaker_cooldown,
+        ),
     )
 
     fallback_client = (
@@ -40,6 +53,11 @@ async def lifespan(app: FastAPI):
     openf1_client = OpenF1Client(
         httpx.AsyncClient(base_url=settings.openf1_base_url, timeout=30.0),
         fallback_client=fallback_client,
+        breaker=CircuitBreaker(
+            name="openf1-primary",
+            failure_threshold=settings.circuit_breaker_threshold,
+            cooldown_seconds=settings.circuit_breaker_cooldown,
+        ),
     )
 
     openmeteo_client = OpenMeteoClient(
@@ -76,6 +94,28 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _metrics_middleware(request: Request, call_next):
+    if not settings.metrics_enabled:
+        return await call_next(request)
+    start = time.perf_counter()
+    response = await call_next(request)
+    # Use the matched route template (not the raw path) to keep label cardinality bounded.
+    route = request.scope.get("route")
+    path = getattr(route, "path", request.url.path)
+    metrics.observe_request(request.method, path, response.status_code, time.perf_counter() - start)
+    return response
+
+
+@app.get("/metrics")
+async def metrics_endpoint() -> Response:
+    if not (settings.metrics_enabled and metrics.available()):
+        return Response("metrics unavailable", status_code=503, media_type="text/plain")
+    body, content_type = metrics.render()
+    return Response(body, media_type=content_type)
+
 
 app.include_router(health.router)
 app.include_router(schedule.router)

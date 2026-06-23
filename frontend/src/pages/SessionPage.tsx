@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useLiveTiming } from '../hooks/useLiveTiming'
+import { useLiveTimingStream } from '../hooks/useLiveTimingStream'
 import { useNextSession } from '../hooks/useNextSession'
 import { useRaceResults } from '../hooks/useRaceResults'
 import { useSchedule } from '../hooks/useSchedule'
@@ -18,6 +19,10 @@ import { useLapTelemetry, type LapPreset } from '../hooks/useLapTelemetry'
 import { WeatherStrip } from '../components/session/WeatherStrip'
 import { TrackMapPanel } from '../components/session/TrackMapPanel'
 import { TimingTower } from '../components/session/TimingTower'
+import { StrategyChart } from '../components/session/StrategyChart'
+import { SectorTable } from '../components/session/SectorTable'
+import { PitWindow } from '../components/session/PitWindow'
+import { GapChart } from '../components/session/GapChart'
 import { RaceTable } from '../components/session/RaceTable'
 import { QualifyingTable } from '../components/session/QualifyingTable'
 import { NoSessionState } from '../components/session/NoSessionState'
@@ -101,6 +106,8 @@ export function SessionPage() {
     ? sessionKey
     : (sessionKey ?? timingData?.session?.session_key)
   const isLive = !!timingData?.session?.is_live
+  // Push live timing frames via SSE into the shared query cache (polling backstop stays on).
+  useLiveTimingStream(sessionKey, isLive && !skipTiming)
   const isHistorical = !!effectiveSessionKey && !!timingData?.session && !isLive
   const hudEnabled = isHistorical || searchParams.get('hud') === '1'
 
@@ -319,6 +326,7 @@ export function SessionPage() {
           currentTime={replay.currentTime} totalDuration={replay.totalDuration}
           onTogglePlay={replay.togglePlay} onSetSpeed={replay.setSpeed}
           onSeek={replay.seek} lapTimes={replay.lapTimes}
+          radioEvents={replay.radioEvents}
           isLive={replay.isLive} liveOffset={replay.liveOffset}
           onSeekToLive={replay.seekToLive}
         />
@@ -369,6 +377,24 @@ export function SessionPage() {
       {hasTimingData && !hasResults && (
         <div className="bg-bg-card border border-border rounded-xl p-3 sm:p-4">
           <TimingTower drivers={timingData!.drivers} />
+        </div>
+      )}
+
+      {/* Tire strategy */}
+      {hasTimingData && timingData!.strategy?.length > 0 && (
+        <StrategyChart strategy={timingData!.strategy} totalLaps={timingData!.total_laps} />
+      )}
+
+      {/* Gap to leader over time (replay/live with interval history) */}
+      {replayStarted && replay.intervalEvents.length > 0 && (
+        <GapChart intervalEvents={replay.intervalEvents} drivers={replay.driverMeta} />
+      )}
+
+      {/* Best sectors + pit window */}
+      {hasTimingData && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <SectorTable drivers={timingData!.drivers} bestSectors={timingData!.best_sectors} />
+          {isLive && <PitWindow drivers={timingData!.drivers} />}
         </div>
       )}
 

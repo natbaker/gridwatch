@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     cache_ttl_weather: int = 7200
     cache_ttl_news: int = 900
 
+    circuit_breaker_threshold: int = 5
+    circuit_breaker_cooldown: float = 30.0
+
+    # Observability
+    json_logs: bool = False
+    sentry_dsn: str = ""
+    metrics_enabled: bool = True
+
     model_config = {"env_prefix": "GRIDWATCH_"}
 
 

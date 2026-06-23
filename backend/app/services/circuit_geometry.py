@@ -1,18 +1,16 @@
 import math
 from datetime import datetime
 
+from app.circuits import CIRCUITS
+
 SVG_WIDTH = 400
 SVG_HEIGHT = 300
 SVG_PADDING = 20
 
+# Derived from the canonical circuit registry so there is one source of truth
+# for circuit identity. Maps the Multiviewer display name → Multiviewer circuit id.
 CIRCUIT_KEYS: dict[str, int] = {
-    "Albert Park": 1, "Shanghai": 2, "Suzuka": 46, "Sakhir": 3,
-    "Jeddah": 61, "Miami": 77, "Montreal": 7, "Monaco": 6,
-    "Barcelona": 4, "Spielberg": 14, "Silverstone": 9,
-    "Spa-Francorchamps": 13, "Budapest": 11, "Zandvoort": 63,
-    "Monza": 18, "Baku": 56, "Singapore": 23, "Austin": 69,
-    "Mexico City": 32, "São Paulo": 21, "Las Vegas": 79,
-    "Lusail": 78, "Yas Island": 24, "Madrid": 80,
+    c.multiviewer_name: c.multiviewer_id for c in CIRCUITS.values()
 }
 
 
