@@ -23,6 +23,7 @@ import { StrategyChart } from '../components/session/StrategyChart'
 import { SectorTable } from '../components/session/SectorTable'
 import { PitWindow } from '../components/session/PitWindow'
 import { GapChart } from '../components/session/GapChart'
+import { RadioPlayer } from '../components/session/RadioPlayer'
 import { RaceTable } from '../components/session/RaceTable'
 import { QualifyingTable } from '../components/session/QualifyingTable'
 import { NoSessionState } from '../components/session/NoSessionState'
@@ -202,6 +203,7 @@ export function SessionPage() {
 
   // ── Derive display info ──
   const session = timingData?.session
+  const showSectors = ['Practice', 'Qualifying'].includes(session?.session_type ?? '')
   const circuit = session?.circuit ?? resultsData?.circuit ?? replay.circuit ?? ''
   const sessionName = session?.session_name ?? replay.sessionName ?? resultsData?.race_name ?? sessionTypeParam ?? ''
   const country = session?.country ?? ''
@@ -326,10 +328,17 @@ export function SessionPage() {
           currentTime={replay.currentTime} totalDuration={replay.totalDuration}
           onTogglePlay={replay.togglePlay} onSetSpeed={replay.setSpeed}
           onSeek={replay.seek} lapTimes={replay.lapTimes}
-          radioEvents={replay.radioEvents}
+          radioEvents={replay.radioEvents} driverMeta={replay.driverMeta}
           isLive={replay.isLive} liveOffset={replay.liveOffset}
           onSeekToLive={replay.seekToLive}
         />
+      )}
+
+      {/* Play all team radio */}
+      {replayStarted && hasReplay && replay.radioEvents.length > 0 && (
+        <div className="flex justify-end">
+          <RadioPlayer radioEvents={replay.radioEvents} driverMeta={replay.driverMeta} />
+        </div>
       )}
 
       {/* Start replay — hidden for live sessions (auto-started) */}
@@ -385,15 +394,15 @@ export function SessionPage() {
         <StrategyChart strategy={timingData!.strategy} totalLaps={timingData!.total_laps} />
       )}
 
-      {/* Gap to leader over time (replay/live with interval history) */}
-      {replayStarted && replay.intervalEvents.length > 0 && (
-        <GapChart intervalEvents={replay.intervalEvents} drivers={replay.driverMeta} />
+      {/* Gap to leader by lap (replay/live with interval history) */}
+      {replayStarted && replay.intervalEvents.length > 0 && replay.lapTimes.length > 0 && (
+        <GapChart intervalEvents={replay.intervalEvents} drivers={replay.driverMeta} lapEvents={replay.lapTimes} />
       )}
 
-      {/* Best sectors + pit window */}
-      {hasTimingData && (
+      {/* Best sectors (practice/qualifying) + pit window (live races) */}
+      {hasTimingData && (showSectors || isLive) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <SectorTable drivers={timingData!.drivers} bestSectors={timingData!.best_sectors} />
+          {showSectors && <SectorTable drivers={timingData!.drivers} bestSectors={timingData!.best_sectors} />}
           {isLive && <PitWindow drivers={timingData!.drivers} />}
         </div>
       )}

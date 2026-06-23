@@ -1,23 +1,18 @@
 import { useMemo } from 'react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts'
-import { buildGapSeries, type IntervalEvent } from './gapSeries'
+import { buildGapSeries, type IntervalEvent, type LapEvent } from './gapSeries'
 
 interface Props {
   intervalEvents: IntervalEvent[]
   drivers: Record<string, { abbreviation: string; team_color: string }>
+  lapEvents: LapEvent[]
 }
 
-function fmtTime(t: number): string {
-  const m = Math.floor(t / 60)
-  const s = Math.floor(t % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
-// Gap-to-leader over time, one line per driver. Lower is closer to the front.
-export function GapChart({ intervalEvents, drivers }: Props) {
+// Gap-to-leader by lap, one line per driver. Lower is closer to the front.
+export function GapChart({ intervalEvents, drivers, lapEvents }: Props) {
   const { data, keys } = useMemo(
-    () => buildGapSeries(intervalEvents, drivers),
-    [intervalEvents, drivers],
+    () => buildGapSeries(intervalEvents, drivers, lapEvents),
+    [intervalEvents, drivers, lapEvents],
   )
 
   if (data.length === 0) return null
@@ -28,10 +23,10 @@ export function GapChart({ intervalEvents, drivers }: Props) {
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -16 }}>
           <XAxis
-            dataKey="t"
-            tickFormatter={fmtTime}
+            dataKey="lap"
             tick={{ fontSize: 9, fill: '#888' }}
             stroke="#444"
+            tickFormatter={(v: number) => `L${v}`}
           />
           <YAxis
             reversed
@@ -42,7 +37,7 @@ export function GapChart({ intervalEvents, drivers }: Props) {
           />
           <Tooltip
             contentStyle={{ background: '#1a1a1a', border: '1px solid #333', fontSize: 11 }}
-            labelFormatter={(label) => `Time ${fmtTime(Number(label))}`}
+            labelFormatter={(label) => `Lap ${label}`}
             formatter={(value, name) => [`+${Number(value).toFixed(1)}s`, String(name)]}
           />
           {keys.map(k => (

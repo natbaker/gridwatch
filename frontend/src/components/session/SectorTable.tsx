@@ -27,7 +27,10 @@ export function SectorTable({ drivers, bestSectors }: Props) {
 
   return (
     <div className="bg-bg-card border border-border rounded-xl p-3 sm:p-4">
-      <h3 className="text-xs tracking-[2px] text-text-secondary mb-3">BEST SECTORS</h3>
+      <div className="mb-3">
+        <h3 className="text-xs tracking-[2px] text-text-secondary">BEST SECTORS</h3>
+        <p className="text-[10px] text-text-tertiary mt-0.5">Each driver's fastest sector times · <span className="text-purple-400">purple</span> = session best</p>
+      </div>
       <table className="w-full text-[11px]">
         <thead>
           <tr className="text-text-tertiary text-[9px] uppercase tracking-wider">

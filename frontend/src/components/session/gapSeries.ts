@@ -11,18 +11,24 @@ export interface GapSeriesKey {
   color: string
 }
 
+export interface LapEvent {
+  t: number
+  lap: number
+}
+
 export interface GapSeries {
   data: Array<Record<string, number | null>>
   keys: GapSeriesKey[]
 }
 
-// Bucket per-driver interval samples into a time series of gap-to-leader,
-// carrying forward each driver's last known gap. Keyed by abbreviation so it
-// can feed a recharts multi-line chart.
+// Build a per-lap series of gap-to-leader. Lap events provide the time anchors;
+// at each lap we snapshot every driver's latest known gap (carried forward).
+// Keyed by abbreviation so it can feed a recharts multi-line chart, with `lap`
+// as the x-axis.
 export function buildGapSeries(
   events: IntervalEvent[],
   drivers: Record<string, { abbreviation: string; team_color: string }>,
-  bucketSeconds = 30,
+  lapEvents: LapEvent[],
 ): GapSeries {
   const keys: GapSeriesKey[] = Object.entries(drivers).map(([n, d]) => ({
     n: Number(n),
@@ -30,19 +36,19 @@ export function buildGapSeries(
     color: d.team_color,
   }))
 
-  const sorted = [...events].sort((a, b) => a.t - b.t)
   const data: Array<Record<string, number | null>> = []
-  if (sorted.length === 0) return { data, keys }
+  if (lapEvents.length === 0) return { data, keys }
 
+  const sortedEvents = [...events].sort((a, b) => a.t - b.t)
+  const sortedLaps = [...lapEvents].sort((a, b) => a.t - b.t)
   const last = new Map<number, number | null>()
-  const maxT = sorted[sorted.length - 1].t
   let i = 0
-  for (let b = 0; b <= maxT; b += bucketSeconds) {
-    while (i < sorted.length && sorted[i].t <= b) {
-      last.set(sorted[i].n, sorted[i].g)
+  for (const { t, lap } of sortedLaps) {
+    while (i < sortedEvents.length && sortedEvents[i].t <= t) {
+      last.set(sortedEvents[i].n, sortedEvents[i].g)
       i++
     }
-    const point: Record<string, number | null> = { t: b }
+    const point: Record<string, number | null> = { lap }
     for (const k of keys) {
       const g = last.get(k.n)
       point[k.abbreviation] = g === undefined ? null : g

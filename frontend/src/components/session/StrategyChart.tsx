@@ -26,19 +26,20 @@ export function StrategyChart({ strategy, totalLaps }: Props) {
               <div className="w-1 h-3.5 rounded-sm" style={{ backgroundColor: driver.team_color }} />
               <span className="text-[10px] font-mono text-text-secondary">{driver.abbreviation}</span>
             </div>
-            <div className="relative flex-1 h-4 bg-bg-elevated rounded overflow-hidden flex">
+            <div className="relative flex-1 h-4 bg-bg-elevated rounded overflow-hidden">
               {driver.stints.map((stint, i) => {
-                const start = stint.lap_start ?? 0
+                const start = stint.lap_start ?? 1
                 const end = stint.lap_end ?? start
-                const width = Math.max(((end - start + 1) / maxLap) * 100, 1)
+                const left = ((start - 1) / maxLap) * 100
+                const width = Math.max(((end - start + 1) / maxLap) * 100, 0.5)
                 return (
                   <div
                     key={i}
-                    className="h-full flex items-center justify-center border-r border-bg-card/50 last:border-r-0"
-                    style={{ width: `${width}%`, backgroundColor: stint.compound_color }}
+                    className="absolute top-0 h-full flex items-center justify-center"
+                    style={{ left: `${left}%`, width: `${width}%`, backgroundColor: stint.compound_color }}
                     title={`${stint.compound || 'Unknown'} — laps ${start}–${end}`}
                   >
-                    <span className="text-[8px] font-bold text-black/70">{stint.compound_short}</span>
+                    {width > 4 && <span className="text-[8px] font-bold text-black/70">{stint.compound_short}</span>}
                   </div>
                 )
               })}

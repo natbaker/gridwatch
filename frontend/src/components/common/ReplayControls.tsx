@@ -8,6 +8,7 @@ interface ReplayControlsProps {
   onSeek: (time: number) => void
   lapTimes?: { t: number; lap: number }[]
   radioEvents?: { t: number; n: number; url: string }[]
+  driverMeta?: Record<string, { abbreviation: string; team_color: string }>
   isLive?: boolean
   liveOffset?: number | null
   onSeekToLive?: () => void
@@ -33,6 +34,7 @@ export function ReplayControls({
   onSeek,
   lapTimes,
   radioEvents,
+  driverMeta,
   isLive,
   liveOffset,
   onSeekToLive,
@@ -108,18 +110,17 @@ export function ReplayControls({
             className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ left: `${progress}%`, marginLeft: -6 }}
           />
-          {radioEvents?.map(({ t }, idx) => {
+          {radioEvents?.map(({ t, n }, idx) => {
             const pct = totalDuration > 0 ? (t / totalDuration) * 100 : 0
+            const meta = driverMeta?.[String(n)]
             return (
               <div
                 key={`radio-${idx}`}
-                className="absolute -top-1.5 -translate-x-1/2 cursor-pointer text-[8px] leading-none opacity-70 hover:opacity-100 transition-opacity"
-                style={{ left: `${pct}%` }}
+                className="absolute -top-2 -translate-x-1/2 w-1.5 h-1.5 rounded-full cursor-pointer opacity-80 hover:opacity-100 hover:scale-150 transition-all"
+                style={{ left: `${pct}%`, backgroundColor: meta?.team_color ?? '#aaa' }}
                 onClick={(e) => { e.stopPropagation(); onSeek(t) }}
-                title="Team radio"
-              >
-                📻
-              </div>
+                title={`📻 ${meta?.abbreviation ?? `#${n}`} team radio`}
+              />
             )
           })}
           {livePct != null && (
