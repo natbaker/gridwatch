@@ -222,11 +222,37 @@ export interface LiveTimingEntry {
   sector_1: number | null
   sector_2: number | null
   sector_3: number | null
+  best_sector_1: number | null
+  best_sector_2: number | null
+  best_sector_3: number | null
   tire_compound: string
   tire_compound_short: string
   tire_compound_color: string
   tire_age: number
   pit_count: number
+}
+
+export interface StintInfo {
+  compound: string
+  compound_short: string
+  compound_color: string
+  stint_number: number
+  lap_start: number | null
+  lap_end: number | null
+  tyre_age: number
+}
+
+export interface DriverStrategy {
+  driver_number: number
+  abbreviation: string
+  team_color: string
+  stints: StintInfo[]
+}
+
+export interface BestSectors {
+  sector_1: number | null
+  sector_2: number | null
+  sector_3: number | null
 }
 
 export interface LivePitStop {
@@ -253,6 +279,8 @@ export interface LiveTimingResponse {
   session: LiveSessionInfo | null
   drivers: LiveTimingEntry[]
   pit_stops: LivePitStop[]
+  strategy: DriverStrategy[]
+  best_sectors: BestSectors
   session_best_lap: number | null
   total_laps: number
   warnings: string[]

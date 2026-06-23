@@ -7,6 +7,7 @@ interface ReplayControlsProps {
   onSetSpeed: (speed: number) => void
   onSeek: (time: number) => void
   lapTimes?: { t: number; lap: number }[]
+  radioEvents?: { t: number; n: number; url: string }[]
   isLive?: boolean
   liveOffset?: number | null
   onSeekToLive?: () => void
@@ -31,6 +32,7 @@ export function ReplayControls({
   onSetSpeed,
   onSeek,
   lapTimes,
+  radioEvents,
   isLive,
   liveOffset,
   onSeekToLive,
@@ -106,6 +108,20 @@ export function ReplayControls({
             className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ left: `${progress}%`, marginLeft: -6 }}
           />
+          {radioEvents?.map(({ t }, idx) => {
+            const pct = totalDuration > 0 ? (t / totalDuration) * 100 : 0
+            return (
+              <div
+                key={`radio-${idx}`}
+                className="absolute -top-1.5 -translate-x-1/2 cursor-pointer text-[8px] leading-none opacity-70 hover:opacity-100 transition-opacity"
+                style={{ left: `${pct}%` }}
+                onClick={(e) => { e.stopPropagation(); onSeek(t) }}
+                title="Team radio"
+              >
+                📻
+              </div>
+            )
+          })}
           {livePct != null && (
             <div
               className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-red-500 rounded-full"

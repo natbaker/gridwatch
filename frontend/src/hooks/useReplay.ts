@@ -53,6 +53,8 @@ export interface ReplayState {
   totalLaps: number
   lapTimes: { t: number; lap: number }[]
   radioEvents: { t: number; n: number; url: string }[]
+  intervalEvents: { t: number; n: number; g: number | null; i: number | null }[]
+  driverMeta: Record<string, { abbreviation: string; team_color: string }>
   dataStart: string
   trackPath: string
   sessionName: string
@@ -358,6 +360,8 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
     totalLaps,
     lapTimes: info?.lap_events ?? [],
     radioEvents: info?.radio_events ?? [],
+    intervalEvents: info?.interval_events ?? [],
+    driverMeta: drivers,
     dataStart: dataStart,
     trackPath: info?.track_path ?? '',
     sessionName: info?.session_name ?? '',
