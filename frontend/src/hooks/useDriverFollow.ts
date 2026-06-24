@@ -7,10 +7,8 @@ const CHUNK_SECONDS = 30
 export interface DriverFollowState {
   followedDriver: number | null
   followDriver: (driverNumber: number | null) => void
+  selectDriver: (driverNumber: number) => void
   telemetry: TelemetrySample | null
-  isRadioPlaying: boolean
-  radioMuted: boolean
-  setRadioMuted: (m: boolean) => void
 }
 
 export function useDriverFollow(
@@ -18,12 +16,9 @@ export function useDriverFollow(
   dataStart: string,
   currentTime: number,
   totalDuration: number,
-  radioEvents: { t: number; n: number; url: string }[],
 ): DriverFollowState {
   const [followedDriver, setFollowedDriver] = useState<number | null>(null)
   const [telemetry, setTelemetry] = useState<TelemetrySample | null>(null)
-  const [isRadioPlaying, setIsRadioPlaying] = useState(false)
-  const [radioMuted, setRadioMuted] = useState(false)
   const [bufferVersion, setBufferVersion] = useState(0)
 
   // Telemetry buffer
@@ -33,14 +28,7 @@ export function useDriverFollow(
   const fetchingRef = useRef(false)
   const driverRef = useRef<number | null>(null)
 
-  // Audio — use a fresh Audio object per clip, track the current one for cleanup
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
-  const playedRef = useRef<Set<number>>(new Set())
-  const lastRadioTimeRef = useRef(0)
-  const currentTimeRef = useRef(currentTime)
-  currentTimeRef.current = currentTime
-
-  // Follow/unfollow
+  // Follow/unfollow (toggles when the same driver is clicked, e.g. on the map)
   const followDriver = useCallback((driverNumber: number | null) => {
     if (driverNumber === followedDriver) {
       setFollowedDriver(null)
@@ -49,7 +37,12 @@ export function useDriverFollow(
     }
   }, [followedDriver])
 
-  // Reset on driver change
+  // Always follow the given driver (no toggle) — used for radio-tick clicks.
+  const selectDriver = useCallback((driverNumber: number) => {
+    setFollowedDriver(driverNumber)
+  }, [])
+
+  // Reset telemetry buffer on driver change
   useEffect(() => {
     driverRef.current = followedDriver
     samplesRef.current = []
@@ -57,24 +50,7 @@ export function useDriverFollow(
     bufferEndRef.current = 0
     fetchingRef.current = false
     setTelemetry(null)
-    playedRef.current = new Set()
-    lastRadioTimeRef.current = currentTimeRef.current
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause()
-      currentAudioRef.current = null
-    }
-    setIsRadioPlaying(false)
   }, [followedDriver])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause()
-        currentAudioRef.current = null
-      }
-    }
-  }, [])
 
   // Fetch telemetry chunk
   const fetchChunk = useCallback(async (fromSeconds: number) => {
@@ -124,13 +100,6 @@ export function useDriverFollow(
       bufferStartRef.current = 0
       bufferEndRef.current = 0
       fetchChunk(Math.max(0, currentTime - 2))
-      playedRef.current = new Set()
-      lastRadioTimeRef.current = currentTime
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause()
-        currentAudioRef.current = null
-      }
-      setIsRadioPlaying(false)
     }
   }, [currentTime, followedDriver, fetchChunk])
 
@@ -151,50 +120,10 @@ export function useDriverFollow(
     setTelemetry(best)
   }, [currentTime, followedDriver, bufferVersion])
 
-  // Auto-play radio — always update lastRadioTimeRef even when muted
-  useEffect(() => {
-    if (!followedDriver) return
-    const prevTime = lastRadioTimeRef.current
-    lastRadioTimeRef.current = currentTime
-    if (currentTime < prevTime) return
-    if (radioMuted) return
-
-    const driverRadio = radioEvents.filter(r => r.n === followedDriver)
-    for (const r of driverRadio) {
-      if (r.t > prevTime && r.t <= currentTime && !playedRef.current.has(r.t)) {
-        playedRef.current.add(r.t)
-        // Create a fresh Audio element for each clip
-        const audio = new Audio(r.url)
-        audio.addEventListener('playing', () => setIsRadioPlaying(true))
-        audio.addEventListener('ended', () => {
-          setIsRadioPlaying(false)
-          if (currentAudioRef.current === audio) currentAudioRef.current = null
-        })
-        audio.addEventListener('error', () => {
-          console.warn('Radio load error:', r.url)
-          setIsRadioPlaying(false)
-          if (currentAudioRef.current === audio) currentAudioRef.current = null
-        })
-        // Stop any currently playing clip
-        if (currentAudioRef.current) {
-          currentAudioRef.current.pause()
-        }
-        currentAudioRef.current = audio
-        audio.play().catch((e) => {
-          console.warn('Radio play failed:', e.message)
-          setIsRadioPlaying(false)
-        })
-        break
-      }
-    }
-  }, [currentTime, followedDriver, radioEvents, radioMuted])
-
   return {
     followedDriver,
     followDriver,
+    selectDriver,
     telemetry,
-    isRadioPlaying,
-    radioMuted,
-    setRadioMuted,
   }
 }

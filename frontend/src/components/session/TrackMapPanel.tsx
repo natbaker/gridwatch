@@ -29,9 +29,6 @@ export interface TrackMapPanelProps {
   followedDriver?: number | null
   onFollowDriver?: (driverNumber: number | null) => void
   followTelemetry?: TelemetrySample | null
-  isRadioPlaying?: boolean
-  radioMuted?: boolean
-  onToggleMute?: () => void
   replayDataStart?: string
   replayDuration?: number
   currentLap?: number
@@ -39,7 +36,7 @@ export interface TrackMapPanelProps {
   fastestLap?: number | null
 }
 
-export function TrackMapPanel({ circuit, sessionKey, drivers, replayCars, replayTrackPath, replayStandings, activeFlag, flagSectors, miniSectors, sectorIndices, corners, replayTime, driversInPit, followedDriver, onFollowDriver, followTelemetry, isRadioPlaying, radioMuted, onToggleMute, replayDataStart, replayDuration, currentLap, totalLaps, fastestLap }: TrackMapPanelProps) {
+export function TrackMapPanel({ circuit, sessionKey, drivers, replayCars, replayTrackPath, replayStandings, activeFlag, flagSectors, miniSectors, sectorIndices, corners, replayTime, driversInPit, followedDriver, onFollowDriver, followTelemetry, replayDataStart, replayDuration, currentLap, totalLaps, fastestLap }: TrackMapPanelProps) {
   const { data } = useCarLocations(sessionKey, !replayCars)
   const cars = replayCars ?? data?.cars ?? []
   const trackPath = replayTrackPath || data?.track_path
@@ -91,9 +88,6 @@ export function TrackMapPanel({ circuit, sessionKey, drivers, replayCars, replay
           abbreviation={driverAInfo?.abbreviation ?? String(followedDriver)}
           teamColor={driverAInfo && 'team_color' in driverAInfo ? driverAInfo.team_color : '#fff'}
           telemetry={followTelemetry ?? null}
-          isRadioPlaying={isRadioPlaying ?? false}
-          radioMuted={radioMuted ?? false}
-          onToggleMute={onToggleMute ?? (() => {})}
           onClose={() => onFollowDriver?.(followedDriver)}
         />
       )}
@@ -105,9 +99,6 @@ export function TrackMapPanel({ circuit, sessionKey, drivers, replayCars, replay
             abbreviation={driverAInfo?.abbreviation ?? String(followedDriver!)}
             teamColor={driverAInfo && 'team_color' in driverAInfo ? driverAInfo.team_color : '#fff'}
             telemetry={followTelemetry ?? null}
-            isRadioPlaying={isRadioPlaying ?? false}
-            radioMuted={radioMuted ?? false}
-            onToggleMute={onToggleMute ?? (() => {})}
             onClose={() => onFollowDriver?.(followedDriver!)}
             compact
           />
@@ -115,9 +106,6 @@ export function TrackMapPanel({ circuit, sessionKey, drivers, replayCars, replay
             abbreviation={driverBInfo?.abbreviation ?? String(compareDriver!)}
             teamColor={driverBInfo && 'team_color' in driverBInfo ? driverBInfo.team_color : '#fff'}
             telemetry={compareTelemetry}
-            isRadioPlaying={false}
-            radioMuted={true}
-            onToggleMute={() => {}}
             onClose={() => setCompareDriver(null)}
             compact
           />

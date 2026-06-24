@@ -8,6 +8,7 @@ import { useRaceResults } from '../hooks/useRaceResults'
 import { useSchedule } from '../hooks/useSchedule'
 import { useReplay } from '../hooks/useReplay'
 import { useDriverFollow } from '../hooks/useDriverFollow'
+import { useRadio } from '../hooks/useRadio'
 import { useSeason } from '../hooks/useSeason'
 import { api } from '../api/client'
 import { LoadingSkeleton } from '../components/common/LoadingSkeleton'
@@ -118,8 +119,9 @@ export function SessionPage() {
   const replay = useReplay(isHistorical ? replaySessionKey : (replayStarted && isLive ? effectiveSessionKey : undefined))
   const follow = useDriverFollow(
     replayStarted ? effectiveSessionKey : undefined,
-    replay.dataStart, replay.currentTime, replay.totalDuration, replay.radioEvents,
+    replay.dataStart, replay.currentTime, replay.totalDuration,
   )
+  const radio = useRadio(replay.currentTime, follow.followedDriver, replay.radioEvents)
 
   const [resultsTab, setResultsTab] = useState<'race' | 'qualifying'>('race')
   const didLiveSeekRef = useRef(false)
@@ -329,16 +331,29 @@ export function SessionPage() {
           onTogglePlay={replay.togglePlay} onSetSpeed={replay.setSpeed}
           onSeek={replay.seek} lapTimes={replay.lapTimes}
           radioEvents={replay.radioEvents} driverMeta={replay.driverMeta}
-          onSelectRadio={(n, t) => { replay.seek(t); follow.followDriver(n) }}
+          followedDriver={follow.followedDriver}
+          onSelectRadio={(n, t) => {
+            follow.selectDriver(n)
+            radio.setRadioOn(true)
+            replay.seek(t)
+            const clip = replay.radioEvents.find(r => r.n === n && r.t === t)
+            if (clip) radio.playClip(clip)
+          }}
           isLive={replay.isLive} liveOffset={replay.liveOffset}
           onSeekToLive={replay.seekToLive}
         />
       )}
 
-      {/* Auto-play team radio as the playhead reaches each clip */}
+      {/* Team radio on/off — playback driven by useRadio (followed driver, or all) */}
       {replayStarted && hasReplay && replay.radioEvents.length > 0 && (
         <div className="flex justify-end">
-          <RadioPlayer radioEvents={replay.radioEvents} driverMeta={replay.driverMeta} currentTime={replay.currentTime} />
+          <RadioPlayer
+            radioOn={radio.radioOn}
+            onToggle={() => radio.setRadioOn(!radio.radioOn)}
+            nowPlaying={radio.nowPlaying}
+            driverMeta={replay.driverMeta}
+            followedDriver={follow.followedDriver}
+          />
         </div>
       )}
 
@@ -372,9 +387,6 @@ export function SessionPage() {
           followedDriver={hudEnabled && replayStarted ? follow.followedDriver : undefined}
           onFollowDriver={hudEnabled && replayStarted ? follow.followDriver : undefined}
           followTelemetry={hudEnabled ? follow.telemetry : undefined}
-          isRadioPlaying={hudEnabled ? follow.isRadioPlaying : undefined}
-          radioMuted={hudEnabled ? follow.radioMuted : undefined}
-          onToggleMute={hudEnabled ? () => follow.setRadioMuted(!follow.radioMuted) : undefined}
           replayDataStart={replay.dataStart}
           replayDuration={replay.totalDuration}
           currentLap={replayStarted && replay.currentLap > 0 ? replay.currentLap : timingData?.total_laps ?? undefined}

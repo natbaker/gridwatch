@@ -4,9 +4,6 @@ interface CockpitHUDProps {
   abbreviation: string
   teamColor: string
   telemetry: TelemetrySample | null
-  isRadioPlaying: boolean
-  radioMuted: boolean
-  onToggleMute: () => void
   onClose: () => void
   compact?: boolean
   label?: string
@@ -86,9 +83,6 @@ export function CockpitHUD({
   abbreviation,
   teamColor,
   telemetry,
-  isRadioPlaying,
-  radioMuted,
-  onToggleMute,
   onClose,
   compact,
   label,
@@ -156,7 +150,7 @@ export function CockpitHUD({
         </div>
       </div>
 
-      {/* Right: Radio + Close */}
+      {/* Right: Close */}
       <div className="flex-1 flex flex-col items-end gap-2 min-w-0">
         <button
           onClick={onClose}
@@ -164,35 +158,6 @@ export function CockpitHUD({
         >
           ✕
         </button>
-        {!compact && (
-          <button
-            onClick={onToggleMute}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded text-[9px] font-mono transition-colors ${
-              radioMuted ? 'bg-white/5 text-text-tertiary' : 'bg-white/10 text-text-secondary'
-            }`}
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M11 5L6 9H2v6h4l5 4V5z" />
-              {radioMuted ? (
-                <path d="M23 9l-6 6M17 9l6 6" />
-              ) : (
-                <path d="M15.54 8.46a5 5 0 010 7.07" />
-              )}
-            </svg>
-            RADIO {radioMuted ? 'OFF' : 'ON'}
-            {isRadioPlaying && !radioMuted && (
-              <div className="flex items-center gap-px ml-0.5">
-                {[1,2,3].map(i => (
-                  <div
-                    key={i}
-                    className="w-px bg-green-400 rounded-full animate-pulse"
-                    style={{ height: `${4 + Math.random() * 4}px`, animationDelay: `${i * 0.1}s` }}
-                  />
-                ))}
-              </div>
-            )}
-          </button>
-        )}
       </div>
     </div>
   )

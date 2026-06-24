@@ -10,6 +10,7 @@ interface ReplayControlsProps {
   radioEvents?: { t: number; n: number; url: string }[]
   driverMeta?: Record<string, { abbreviation: string; team_color: string }>
   onSelectRadio?: (driverNumber: number, t: number) => void
+  followedDriver?: number | null
   isLive?: boolean
   liveOffset?: number | null
   onSeekToLive?: () => void
@@ -37,6 +38,7 @@ export function ReplayControls({
   radioEvents,
   driverMeta,
   onSelectRadio,
+  followedDriver,
   isLive,
   liveOffset,
   onSeekToLive,
@@ -115,10 +117,14 @@ export function ReplayControls({
           {radioEvents?.map(({ t, n }, idx) => {
             const pct = totalDuration > 0 ? (t / totalDuration) * 100 : 0
             const meta = driverMeta?.[String(n)]
+            // Dim other drivers' clips while following someone.
+            const dimmed = followedDriver != null && n !== followedDriver
             return (
               <div
                 key={`radio-${idx}`}
-                className="absolute -top-2 -translate-x-1/2 w-1.5 h-1.5 rounded-full cursor-pointer opacity-80 hover:opacity-100 hover:scale-150 transition-all"
+                className={`absolute -top-2 -translate-x-1/2 w-1.5 h-1.5 rounded-full cursor-pointer transition-all hover:scale-150 ${
+                  dimmed ? 'opacity-20 hover:opacity-70' : 'opacity-80 hover:opacity-100'
+                }`}
                 style={{ left: `${pct}%`, backgroundColor: meta?.team_color ?? '#aaa' }}
                 onClick={(e) => {
                   e.stopPropagation()
