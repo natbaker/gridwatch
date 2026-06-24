@@ -1,3 +1,5 @@
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+
 interface ReplayControlsProps {
   isPlaying: boolean
   speed: number
@@ -25,6 +27,8 @@ function formatTime(seconds: number): string {
 }
 
 const SPEEDS = [1, 2, 5, 10, 20]
+const SEEK_STEP = 5
+const SEEK_STEP_LARGE = 30
 
 export function ReplayControls({
   isPlaying,
@@ -48,6 +52,43 @@ export function ReplayControls({
     ? (liveOffset / totalDuration) * 100
     : null
   const atLive = livePct != null && Math.abs(currentTime - (liveOffset ?? 0)) < 15
+
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState(false)
+
+  const seekFromClientX = (clientX: number) => {
+    const el = trackRef.current
+    if (!el || totalDuration <= 0) return
+    const rect = el.getBoundingClientRect()
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    onSeek(pct * totalDuration)
+  }
+
+  const clamp = (t: number) => Math.max(0, Math.min(totalDuration, t))
+
+  const onTrackKeyDown = (e: ReactKeyboardEvent) => {
+    if (totalDuration <= 0) return
+    const big = e.shiftKey
+    switch (e.key) {
+      case 'ArrowLeft':
+        e.preventDefault()
+        onSeek(clamp(currentTime - (big ? SEEK_STEP_LARGE : SEEK_STEP)))
+        break
+      case 'ArrowRight':
+        e.preventDefault()
+        onSeek(clamp(currentTime + (big ? SEEK_STEP_LARGE : SEEK_STEP)))
+        break
+      case 'Home':
+        e.preventDefault()
+        onSeek(0)
+        break
+      case 'End':
+        e.preventDefault()
+        if (isLive && onSeekToLive) onSeekToLive()
+        else onSeek(totalDuration)
+        break
+    }
+  }
 
   return (
     <div className="bg-bg-elevated rounded-lg px-3 py-2">
@@ -78,12 +119,30 @@ export function ReplayControls({
       </span>
 
       <div
-        className="flex-1 h-6 flex items-center cursor-pointer group"
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect()
-          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-          onSeek(pct * totalDuration)
+        ref={trackRef}
+        role="slider"
+        aria-label="Replay position"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(totalDuration)}
+        aria-valuenow={Math.round(currentTime)}
+        aria-valuetext={`${formatTime(currentTime)} of ${formatTime(totalDuration)}`}
+        tabIndex={totalDuration > 0 ? 0 : -1}
+        className="flex-1 h-6 flex items-center cursor-pointer group touch-none rounded outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        onKeyDown={onTrackKeyDown}
+        onPointerDown={(e) => {
+          if (totalDuration <= 0) return
+          e.currentTarget.setPointerCapture(e.pointerId)
+          setDragging(true)
+          seekFromClientX(e.clientX)
         }}
+        onPointerMove={(e) => {
+          if (dragging) seekFromClientX(e.clientX)
+        }}
+        onPointerUp={(e) => {
+          e.currentTarget.releasePointerCapture(e.pointerId)
+          setDragging(false)
+        }}
+        onPointerCancel={() => setDragging(false)}
       >
         <div className="w-full h-1.5 bg-border rounded-full relative">
           {lapTimes?.map(({ t, lap }) => {
@@ -111,7 +170,7 @@ export function ReplayControls({
             style={{ width: `${progress}%` }}
           />
           <div
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+            className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full shadow-md transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 ${dragging ? 'opacity-100' : 'opacity-0'}`}
             style={{ left: `${progress}%`, marginLeft: -6 }}
           />
           {radioEvents?.map(({ t, n }, idx) => {

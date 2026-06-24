@@ -1,8 +1,37 @@
+import { useEffect, useRef, useState } from 'react'
 import type { LiveTimingEntry } from '../../types'
 import { formatLapTime, formatGap } from './utils'
 import { TireChip } from './TireChip'
 
+type Flash = 'up' | 'down'
+
 export function TimingTower({ drivers }: { drivers: LiveTimingEntry[] }) {
+  const prevPos = useRef<Map<number, number>>(new Map())
+  const [flashes, setFlashes] = useState<Record<number, Flash>>({})
+
+  useEffect(() => {
+    const changed: Record<number, Flash> = {}
+    for (const d of drivers) {
+      if (!d.position) continue
+      const before = prevPos.current.get(d.driver_number)
+      if (before != null && before !== d.position) {
+        changed[d.driver_number] = d.position < before ? 'up' : 'down'
+      }
+      prevPos.current.set(d.driver_number, d.position)
+    }
+    if (Object.keys(changed).length === 0) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFlashes((f) => ({ ...f, ...changed }))
+    const timer = setTimeout(() => {
+      setFlashes((f) => {
+        const next = { ...f }
+        for (const n of Object.keys(changed)) delete next[Number(n)]
+        return next
+      })
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [drivers])
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm whitespace-nowrap">
@@ -22,8 +51,12 @@ export function TimingTower({ drivers }: { drivers: LiveTimingEntry[] }) {
           </tr>
         </thead>
         <tbody>
-          {drivers.map((d) => (
-            <tr key={d.driver_number} className="border-b border-border/30 hover:bg-bg-elevated/50 transition-colors">
+          {drivers.map((d) => {
+            const flash = flashes[d.driver_number]
+            return (
+            <tr key={d.driver_number} className={`border-b border-border/30 transition-colors duration-700 ${
+              flash === 'up' ? 'bg-green-500/15' : flash === 'down' ? 'bg-red-500/15' : 'hover:bg-bg-elevated/50'
+            }`}>
               <td className="py-2 px-2 font-mono font-bold text-text-secondary">{d.position || '—'}</td>
               <td className="py-2 px-2">
                 <div className="flex items-center gap-2">
@@ -67,7 +100,8 @@ export function TimingTower({ drivers }: { drivers: LiveTimingEntry[] }) {
                 {d.pit_count || '—'}
               </td>
             </tr>
-          ))}
+            )
+          })}
         </tbody>
       </table>
     </div>

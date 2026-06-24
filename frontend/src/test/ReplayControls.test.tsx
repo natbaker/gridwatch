@@ -96,6 +96,44 @@ describe('ReplayControls — speed buttons', () => {
   })
 })
 
+describe('ReplayControls — seek slider', () => {
+  it('exposes the timeline as a slider with aria values', () => {
+    render(<ReplayControls {...baseProps} currentTime={120} totalDuration={3600} />)
+    const slider = screen.getByRole('slider', { name: /replay position/i })
+    expect(slider.getAttribute('aria-valuemin')).toBe('0')
+    expect(slider.getAttribute('aria-valuemax')).toBe('3600')
+    expect(slider.getAttribute('aria-valuenow')).toBe('120')
+  })
+
+  it('seeks backward/forward with arrow keys', () => {
+    const onSeek = vi.fn()
+    render(<ReplayControls {...baseProps} currentTime={120} totalDuration={3600} onSeek={onSeek} />)
+    const slider = screen.getByRole('slider', { name: /replay position/i })
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+    expect(onSeek).toHaveBeenLastCalledWith(125)
+    fireEvent.keyDown(slider, { key: 'ArrowLeft' })
+    expect(onSeek).toHaveBeenLastCalledWith(115)
+  })
+
+  it('uses a larger step with Shift held', () => {
+    const onSeek = vi.fn()
+    render(<ReplayControls {...baseProps} currentTime={120} totalDuration={3600} onSeek={onSeek} />)
+    const slider = screen.getByRole('slider', { name: /replay position/i })
+    fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true })
+    expect(onSeek).toHaveBeenLastCalledWith(150)
+  })
+
+  it('clamps seeking at the start and end', () => {
+    const onSeek = vi.fn()
+    render(<ReplayControls {...baseProps} currentTime={2} totalDuration={3600} onSeek={onSeek} />)
+    const slider = screen.getByRole('slider', { name: /replay position/i })
+    fireEvent.keyDown(slider, { key: 'ArrowLeft' })
+    expect(onSeek).toHaveBeenLastCalledWith(0)
+    fireEvent.keyDown(slider, { key: 'Home' })
+    expect(onSeek).toHaveBeenLastCalledWith(0)
+  })
+})
+
 describe('ReplayControls — play/pause', () => {
   it('shows play icon when not playing', () => {
     const { container } = render(<ReplayControls {...baseProps} isPlaying={false} />)
