@@ -134,6 +134,13 @@ async def test_practice_session_sorted_by_fastest_lap():
     # HAM (90.2s) fastest, VER (91.5s) second, RUS (no time) last
     assert nums == [44, 1, 63]
 
+    # Positions are reassigned to match the fastest-lap ranking; drivers with
+    # no time get position 0 (rendered as "—") rather than a stale OpenF1 rank.
+    by_num = {d["driver_number"]: d for d in result["drivers"]}
+    assert by_num[44]["position"] == 1
+    assert by_num[1]["position"] == 2
+    assert by_num[63]["position"] == 0
+
 
 @pytest.mark.asyncio
 async def test_is_session_best_for_fastest_driver():

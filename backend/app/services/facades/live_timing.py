@@ -409,6 +409,10 @@ class LiveTimingFacade:
             # Position data is unreliable/absent for practice and qualifying —
             # rank by fastest lap instead, with no-time drivers at the bottom.
             timing_entries.sort(key=lambda x: x["best_lap"] if x["best_lap"] is not None else float("inf"))
+            # Reassign positions to match the fastest-lap ranking so the P column
+            # is consistent; drivers without a lap time keep position 0 ("—").
+            for i, entry in enumerate(timing_entries):
+                entry["position"] = i + 1 if entry["best_lap"] is not None else 0
         else:
             timing_entries.sort(key=lambda x: x["position"] if x["position"] > 0 else 999)
 
