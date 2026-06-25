@@ -163,26 +163,20 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
   // Compute current car positions
   const cars: CarLocation[] = []
   if (positionsRef.current.length > 0) {
-    // Collect last two positions per driver to detect stopped cars
     const latest = new Map<number, ReplayPosition>()
-    const prev = new Map<number, ReplayPosition>()
     for (const p of positionsRef.current) {
       if (p.t > currentTime + 0.5) break
       const existing = latest.get(p.n)
-      if (!existing || p.t > existing.t) {
-        if (existing) prev.set(p.n, existing)
-        latest.set(p.n, p)
-      }
+      if (!existing || p.t > existing.t) latest.set(p.n, p)
     }
     for (const [num, pos] of latest) {
-      // Hide drivers that haven't moved (DNF/parked) — compare last two positions
-      const prevPos = prev.get(num)
-      if (prevPos && currentTime - pos.t > 10) {
-        const dx = pos.x - prevPos.x
-        const dy = pos.y - prevPos.y
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        if (dist < 1) continue  // less than 1 SVG unit of movement = stationary
-      }
+      // A retired/parked car's GPS stops, freezing its last point while the
+      // playhead advances. Once we have buffered data covering the current time
+      // yet this car's last point is well behind it, the car is off-track — drop
+      // it. (Gating on buffer coverage avoids hiding everyone during a load gap.)
+      const stale = currentTime - pos.t > 10
+      const bufferCoversNow = bufferEndRef.current > currentTime
+      if (stale && bufferCoversNow) continue
       const driverInfo = drivers[String(num)]
       if (driverInfo) {
         cars.push({
