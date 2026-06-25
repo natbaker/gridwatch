@@ -302,6 +302,15 @@ export interface CarLocationsResponse {
   corners?: { number: number; x: number; y: number }[]
 }
 
+export interface ReplayStanding {
+  driver_number: number
+  abbreviation: string
+  team_color: string
+  position: number
+  gap_to_leader: number | null
+  interval: number | null
+}
+
 export interface ReplayInfo {
   session_key: number
   session_name: string
@@ -321,6 +330,7 @@ export interface ReplayInfo {
   sector_indices: number[]
   corners: { number: number; x: number; y: number }[]
   radio_events: { t: number; n: number; url: string }[]
+  grid?: Record<string, number>
 }
 
 export interface TelemetrySample {

@@ -33,6 +33,7 @@ def _make_facade(sessions=None):
     openf1.get_weather.return_value = []
     openf1.get_pit_stops.return_value = []
     openf1.get_team_radio.return_value = []
+    openf1.get_session_result.return_value = []
 
     facade = LiveTimingFacade(openf1=openf1, cache=TTLCache())
     facade._get_track_bounds = AsyncMock(return_value=_MINIMAL_BOUNDS)
@@ -274,6 +275,83 @@ async def test_interval_events_beyond_5s_both_kept():
 
     driver_44_ivs = [e for e in result["interval_events"] if e["n"] == 44]
     assert len(driver_44_ivs) == 2
+
+
+# ── Starting grid ───────────────────────────────────────────────────────────��─
+
+@pytest.mark.asyncio
+async def test_starting_grid_from_qualifying_result():
+    """For a race, the grid is built from the meeting's qualifying result."""
+    facade = _make_facade()
+    facade._openf1.get_sessions.return_value = [
+        {"session_key": 100, "session_type": "Qualifying", "session_name": "Qualifying"},
+        {"session_key": 101, "session_type": "Race", "session_name": "Race"},
+    ]
+    facade._openf1.get_session_result.return_value = [
+        {"driver_number": 63, "position": 1},
+        {"driver_number": 44, "position": 2},
+        {"driver_number": 1, "position": 3},
+    ]
+
+    grid = await facade._get_starting_grid(
+        {"session_type": "Race", "session_name": "Race", "meeting_key": 1287}
+    )
+
+    assert grid == {63: 1, 44: 2, 1: 3}
+    facade._openf1.get_session_result.assert_awaited_once_with(100)
+
+
+@pytest.mark.asyncio
+async def test_starting_grid_empty_for_non_race():
+    """Non-race sessions have no meaningful starting grid (no API calls made)."""
+    facade = _make_facade()
+    grid = await facade._get_starting_grid(
+        {"session_type": "Qualifying", "session_name": "Qualifying", "meeting_key": 1287}
+    )
+    assert grid == {}
+    facade._openf1.get_session_result.assert_not_awaited()
+
+
+# ── Position baseline ───────────────────────────────────────────────────────��─
+
+@pytest.mark.asyncio
+async def test_pre_start_positions_clamped_to_zero_baseline():
+    """Grid positions reported before the session start are kept (clamped to
+    t=0), so a driver who never changes position still has a running order."""
+    session_start = "2026-05-25T13:00:00+00:00"
+    session_end = "2026-05-25T15:00:00+00:00"
+    facade = _make_facade(sessions=[_make_session_doc(session_start, session_end)])
+
+    start_dt = datetime(2026, 5, 25, 13, 0, 0, tzinfo=timezone.utc)
+    raw_positions = [
+        # Grid order reported 40 min before the start — must NOT be dropped
+        {"session_key": 9999, "driver_number": 1, "position": 1,
+         "date": (start_dt - timedelta(seconds=2400)).isoformat()},
+        {"session_key": 9999, "driver_number": 44, "position": 2,
+         "date": (start_dt - timedelta(seconds=2400)).isoformat()},
+        # An in-race change for #44 only
+        {"session_key": 9999, "driver_number": 44, "position": 3,
+         "date": (start_dt + timedelta(seconds=600)).isoformat()},
+    ]
+
+    async def mongo_side_effect(collection, session_key):
+        if collection == "position":
+            return raw_positions
+        return []
+
+    with patch("app.services.facades.live_timing.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 5, 25, 16, 0, 0, tzinfo=timezone.utc)
+        mock_dt.fromisoformat.side_effect = datetime.fromisoformat
+        with patch("app.services.mongo_direct.query_session", new=AsyncMock(side_effect=mongo_side_effect)):
+            result = await facade.get_replay_info(9999)
+
+    events = result["position_events"]
+    # The leader (#1) keeps a baseline position at t=0 despite never changing
+    leader = [e for e in events if e["n"] == 1]
+    assert leader == [{"t": 0.0, "n": 1, "p": 1}]
+    # #44 has a t=0 baseline plus the in-race change, in chronological order
+    d44 = [e for e in events if e["n"] == 44]
+    assert d44 == [{"t": 0.0, "n": 44, "p": 2}, {"t": 600.0, "n": 44, "p": 3}]
 
 
 # ── Pit events ────────────────────────────────────────────────────────────────

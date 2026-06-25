@@ -864,6 +864,7 @@ class LiveTimingFacade:
             laps_raw,
             weather_raw,
             pits_raw,
+            grid,
         ) = await asyncio.gather(
             _collection("position", lambda: self._openf1.get_positions(session_key)),
             _collection("intervals", lambda: self._openf1.get_intervals(session_key)),
@@ -871,17 +872,27 @@ class LiveTimingFacade:
             _collection("laps", lambda: self._openf1.get_laps(session_key)),
             _collection("weather", lambda: self._openf1.get_weather(session_key)),
             _collection("pit", lambda: self._openf1.get_pit_stops(session_key)),
+            _safe(self._get_starting_grid(session)),
         )
 
-        position_events = []
+        # The position feed only emits on a position *change*, and the initial
+        # grid order is reported before the session start. Dropping those
+        # pre-start events leaves any driver who never changes position (often
+        # the leader) with no position at all. Clamp pre-start events to t=0 so
+        # every driver carries a baseline running order from the start.
+        position_parsed = []
         for p in positions_raw:
             date = p.get("date")
             num = p.get("driver_number")
             pos = p.get("position")
             if date and num and pos:
                 t = (_parse_dt(date) - start_dt).total_seconds()
-                if t >= 0:
-                    position_events.append({"t": round(t, 1), "n": num, "p": pos})
+                position_parsed.append((t, num, pos))
+        position_parsed.sort(key=lambda x: x[0])
+        position_events = [
+            {"t": round(max(t, 0.0), 1), "n": num, "p": pos}
+            for t, num, pos in position_parsed
+        ]
 
         # Downsample intervals — sort first (MongoDB may return unsorted), then keep one per driver per ~5s
         intervals_parsed = []
@@ -1062,7 +1073,33 @@ class LiveTimingFacade:
             "pit_events": pit_events,
             "weather_events": weather_events,
             "radio_events": radio_events,
+            "grid": grid if isinstance(grid, dict) else {},
         }
+
+    async def _get_starting_grid(self, session: dict) -> dict[int, int]:
+        """driver_number -> grid slot from the meeting's qualifying classification.
+
+        The position feed usually lacks pre-race grid data, so the opening-lap
+        order (before any gaps are reported) is seeded from qualifying.
+        """
+        name = session.get("session_name", "")
+        if session.get("session_type") != "Race" and "Race" not in name:
+            return {}
+        meeting_key = session.get("meeting_key")
+        if not meeting_key:
+            return {}
+        sessions = await self._openf1.get_sessions(meeting_key=str(meeting_key))
+        quali = next((s for s in sessions if s.get("session_type") == "Qualifying"), None)
+        if not quali or not quali.get("session_key"):
+            return {}
+        result = await self._openf1.get_session_result(int(quali["session_key"]))
+        grid: dict[int, int] = {}
+        for r in result:
+            num = r.get("driver_number")
+            pos = r.get("position")
+            if isinstance(num, (int, float)) and isinstance(pos, (int, float)):
+                grid[int(num)] = int(pos)
+        return grid
 
     async def get_replay_positions(self, session_key: int, from_time: str, seconds: int = 30) -> dict:
         """Get normalized car positions for a time window, for replay playback."""

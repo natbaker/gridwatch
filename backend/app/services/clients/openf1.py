@@ -78,6 +78,9 @@ class OpenF1Client:
     async def get_intervals(self, session_key: int) -> list[dict]:
         return await self._get("/intervals", params={"session_key": str(session_key)})
 
+    async def get_session_result(self, session_key: int) -> list[dict]:
+        return await self._get("/session_result", params={"session_key": str(session_key)})
+
     async def get_laps(self, session_key: int, driver_number: int | None = None) -> list[dict]:
         params: dict = {"session_key": str(session_key)}
         if driver_number is not None:

@@ -1,19 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { CarLocation, ReplayPosition } from '../types'
+import type { CarLocation, ReplayPosition, ReplayStanding } from '../types'
+import { computeStandings } from '../components/session/utils'
 
 const CHUNK_SECONDS = 30
 const FRAME_INTERVAL_MS = 250 // 4 fps
 
-export interface ReplayStanding {
-  driver_number: number
-  abbreviation: string
-  team_color: string
-  position: number
-  gap_to_leader: number | null
-  interval: number | null
-}
+export type { ReplayStanding }
 
 export interface RaceControlEvent {
   t: number
@@ -202,55 +196,8 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
     }
   }
 
-  // Compute current standings from interval events (sorted by gap to leader)
-  const standings: ReplayStanding[] = []
-  if (info) {
-    const ivEvents = info.interval_events ?? []
-
-    const latestIv = new Map<number, { g: number | null; i: number | null }>()
-    for (const e of ivEvents) {
-      if (e.t > currentTime) break
-      latestIv.set(e.n, { g: e.g, i: e.i })
-    }
-
-    for (const [numStr, dInfo] of Object.entries(drivers)) {
-      const num = Number(numStr)
-      const iv = latestIv.get(num)
-      standings.push({
-        driver_number: num,
-        abbreviation: dInfo.abbreviation,
-        team_color: dInfo.team_color,
-        position: 0, // will be assigned after sort
-        gap_to_leader: iv ? (iv.g ?? 0) : null,
-        interval: iv?.i ?? null,
-      })
-    }
-
-    // If we have interval data but nobody has gap=0, infer the leader:
-    // the one driver missing from interval data is the race leader
-    const hasAnyData = standings.some(s => s.gap_to_leader !== null)
-    const hasLeader = standings.some(s => s.gap_to_leader === 0)
-    if (hasAnyData && !hasLeader) {
-      const missing = standings.filter(s => s.gap_to_leader === null)
-      if (missing.length === 1) {
-        missing[0].gap_to_leader = 0
-        missing[0].interval = 0
-      }
-    }
-
-    // Sort by gap to leader — drivers with gap data first, rest at bottom
-    standings.sort((a, b) => {
-      if (a.gap_to_leader !== null && b.gap_to_leader !== null) return a.gap_to_leader - b.gap_to_leader
-      if (a.gap_to_leader !== null) return -1
-      if (b.gap_to_leader !== null) return 1
-      return 0
-    })
-
-    // Assign positions from sorted order
-    standings.forEach((s, i) => {
-      s.position = s.gap_to_leader !== null ? i + 1 : 0
-    })
-  }
+  // Standings follow the authoritative running-order feed (see computeStandings)
+  const standings: ReplayStanding[] = info ? computeStandings(info, currentTime) : []
 
   // Compute active race control flag and per-sector yellows
   let activeFlag: RaceControlEvent | null = null
