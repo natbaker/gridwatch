@@ -865,6 +865,7 @@ class LiveTimingFacade:
             weather_raw,
             pits_raw,
             grid,
+            dnf,
         ) = await asyncio.gather(
             _collection("position", lambda: self._openf1.get_positions(session_key)),
             _collection("intervals", lambda: self._openf1.get_intervals(session_key)),
@@ -873,6 +874,7 @@ class LiveTimingFacade:
             _collection("weather", lambda: self._openf1.get_weather(session_key)),
             _collection("pit", lambda: self._openf1.get_pit_stops(session_key)),
             _safe(self._get_starting_grid(session)),
+            _safe(self._get_dnf_drivers(session_key, session)),
         )
 
         # The position feed only emits on a position *change*, and the initial
@@ -1074,7 +1076,28 @@ class LiveTimingFacade:
             "weather_events": weather_events,
             "radio_events": radio_events,
             "grid": grid if isinstance(grid, dict) else {},
+            "dnf": dnf if isinstance(dnf, list) else [],
         }
+
+    async def _get_dnf_drivers(self, session_key: int, session: dict) -> list[int]:
+        """driver_numbers that retired (DNF) per the session's final classification.
+
+        A retired car's timing feed simply stops, so its last gap stays frozen in
+        the standings forever. The authoritative retirement signal is the final
+        result (``dnf`` true), which only exists once the session has run — empty
+        for a live, in-progress session. The retirement *moment* is recovered on
+        the client from each driver's last timing event.
+        """
+        name = session.get("session_name", "")
+        if session.get("session_type") != "Race" and "Race" not in name:
+            return []
+        result = await self._openf1.get_session_result(session_key)
+        out: list[int] = []
+        for r in result:
+            num = r.get("driver_number")
+            if isinstance(num, (int, float)) and r.get("dnf"):
+                out.append(int(num))
+        return out
 
     async def _get_starting_grid(self, session: dict) -> dict[int, int]:
         """driver_number -> grid slot from the meeting's qualifying classification.

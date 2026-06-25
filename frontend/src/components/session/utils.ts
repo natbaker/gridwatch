@@ -17,6 +17,12 @@ import type { ReplayInfo, ReplayStanding } from '../../types'
 // which arrives as null) or cars not yet timed — sort to the bottom, ordered by
 // the sparse position feed when available and then by car number. Display
 // position is the final sorted rank so every row shows a number.
+//
+// A retired (DNF) car's timing feed simply stops, freezing its last gap, so it
+// would otherwise hold its on-track position forever. The final classification
+// tells us *who* retired (info.dnf); the retirement *moment* is each driver's
+// last timing event. Once the replay clock passes that, the car is "out": shown
+// as DNF and sorted below every running car, later retirements ranked first.
 export function computeStandings(info: ReplayInfo, currentTime: number): ReplayStanding[] {
   const latestIv = new Map<number, { g: number | null; i: number | null }>()
   for (const e of info.interval_events ?? []) {
@@ -30,9 +36,23 @@ export function computeStandings(info: ReplayInfo, currentTime: number): ReplayS
     latestPos.set(e.n, e.p)
   }
 
+  // Last sign of life per retired driver (their feed's final timestamp). Events
+  // are sorted ascending, so the last write wins.
+  const dnfSet = new Set(info.dnf ?? [])
+  const lastSeen = new Map<number, number>()
+  if (dnfSet.size > 0) {
+    for (const e of info.interval_events ?? []) {
+      if (dnfSet.has(e.n)) lastSeen.set(e.n, e.t)
+    }
+    for (const e of info.position_events ?? []) {
+      if (dnfSet.has(e.n) && e.t > (lastSeen.get(e.n) ?? -Infinity)) lastSeen.set(e.n, e.t)
+    }
+  }
+
   const standings: ReplayStanding[] = Object.entries(info.drivers).map(([numStr, dInfo]) => {
     const num = Number(numStr)
     const iv = latestIv.get(num)
+    const last = lastSeen.get(num)
     return {
       driver_number: num,
       abbreviation: dInfo.abbreviation,
@@ -40,16 +60,32 @@ export function computeStandings(info: ReplayInfo, currentTime: number): ReplayS
       position: 0,
       gap_to_leader: iv ? iv.g : null,
       interval: iv?.i ?? null,
+      out: last !== undefined && currentTime > last,
     }
   })
 
+  // Retired cars sort below everyone still running, later retirements first.
+  const byRetirement = (a: ReplayStanding, b: ReplayStanding): number | null => {
+    if (a.out !== b.out) return a.out ? 1 : -1
+    if (a.out && b.out) {
+      const at = lastSeen.get(a.driver_number) ?? 0
+      const bt = lastSeen.get(b.driver_number) ?? 0
+      if (at !== bt) return bt - at
+      return a.driver_number - b.driver_number
+    }
+    return null
+  }
+
+  const running = standings.filter(s => !s.out)
   const grid = info.grid
   const hasGrid = !!grid && Object.keys(grid).length > 0
-  const leaderHasCrossedLine = standings.some(s => s.gap_to_leader === 0)
+  const leaderHasCrossedLine = running.some(s => s.gap_to_leader === 0)
 
   if (hasGrid && !leaderHasCrossedLine) {
     // Opening lap: hold the starting grid until the leader first registers gap 0.
     standings.sort((a, b) => {
+      const ret = byRetirement(a, b)
+      if (ret !== null) return ret
       const ag = grid![String(a.driver_number)] ?? Infinity
       const bg = grid![String(b.driver_number)] ?? Infinity
       if (ag !== bg) return ag - bg
@@ -61,16 +97,19 @@ export function computeStandings(info: ReplayInfo, currentTime: number): ReplayS
 
   // The leader doesn't report a gap-to-leader on the opening lap (their gap to
   // themselves is 0, but the feed omits it until they next cross the line).
-  // Everyone else reports a gap to the leader, so if exactly one driver lacks a
-  // gap and nobody yet shows gap 0, that driver is the leader. This deliberately
-  // does not fire once cars are lapped (multiple null gaps, leader already at 0).
-  const someHaveGap = standings.some(s => s.gap_to_leader !== null)
+  // Everyone else reports a gap to the leader, so if exactly one running driver
+  // lacks a gap and nobody yet shows gap 0, that driver is the leader. This
+  // deliberately does not fire once cars are lapped (multiple null gaps, leader
+  // already at 0).
+  const someHaveGap = running.some(s => s.gap_to_leader !== null)
   if (someHaveGap && !leaderHasCrossedLine) {
-    const missing = standings.filter(s => s.gap_to_leader === null)
+    const missing = running.filter(s => s.gap_to_leader === null)
     if (missing.length === 1) missing[0].gap_to_leader = 0
   }
 
   standings.sort((a, b) => {
+    const ret = byRetirement(a, b)
+    if (ret !== null) return ret
     const ag = a.gap_to_leader
     const bg = b.gap_to_leader
     if (ag !== null && bg !== null) return ag - bg

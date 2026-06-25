@@ -309,6 +309,7 @@ export interface ReplayStanding {
   position: number
   gap_to_leader: number | null
   interval: number | null
+  out?: boolean
 }
 
 export interface ReplayInfo {
@@ -331,6 +332,7 @@ export interface ReplayInfo {
   corners: { number: number; x: number; y: number }[]
   radio_events: { t: number; n: number; url: string }[]
   grid?: Record<string, number>
+  dnf?: number[]
 }
 
 export interface TelemetrySample {

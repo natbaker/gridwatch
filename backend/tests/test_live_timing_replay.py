@@ -312,6 +312,34 @@ async def test_starting_grid_empty_for_non_race():
     facade._openf1.get_session_result.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_dnf_drivers_from_race_result():
+    """Retired drivers come from the race's own final classification (dnf flag)."""
+    facade = _make_facade()
+    facade._openf1.get_session_result.return_value = [
+        {"driver_number": 1, "position": 1, "dnf": False},
+        {"driver_number": 55, "position": None, "dnf": True},
+        {"driver_number": 43, "position": None, "dnf": True},
+        {"driver_number": 23, "position": None, "dns": True},  # did not start, not DNF
+    ]
+
+    dnf = await facade._get_dnf_drivers(101, {"session_type": "Race", "session_name": "Race"})
+
+    assert sorted(dnf) == [43, 55]
+    facade._openf1.get_session_result.assert_awaited_once_with(101)
+
+
+@pytest.mark.asyncio
+async def test_dnf_drivers_empty_for_non_race():
+    """DNF classification is only meaningful for races (no API call made)."""
+    facade = _make_facade()
+    dnf = await facade._get_dnf_drivers(
+        200, {"session_type": "Qualifying", "session_name": "Qualifying"}
+    )
+    assert dnf == []
+    facade._openf1.get_session_result.assert_not_awaited()
+
+
 # ── Position baseline ───────────────────────────────────────────────────────��─
 
 @pytest.mark.asyncio

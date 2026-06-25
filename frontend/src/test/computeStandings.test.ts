@@ -200,6 +200,67 @@ describe('computeStandings', () => {
     expect(standings.map(s => s.position)).toEqual([1, 2, 3])
   })
 
+  it('marks a DNF driver as out once their feed stops, sinking them past running cars', () => {
+    // SAI (#55) is running 3rd (gap 1.0, ahead of HAM) but retires at t=100 —
+    // his interval feed stops. Without DNF handling his stale 1.0 gap keeps him
+    // ahead of HAM forever. He must drop to the bottom and show as out instead.
+    const info = makeInfo({
+      drivers: {
+        '1': { abbreviation: 'VER', team_color: '3671C6' },
+        '44': { abbreviation: 'HAM', team_color: '27F4D2' },
+        '55': { abbreviation: 'SAI', team_color: 'E8002D' },
+      },
+      dnf: [55],
+      interval_events: [
+        { t: 50, n: 1, g: 0, i: 0 },
+        { t: 50, n: 44, g: 2.0, i: 2.0 },
+        { t: 50, n: 55, g: 1.0, i: 1.0 },
+        { t: 100, n: 1, g: 0, i: 0 },
+        { t: 100, n: 44, g: 2.0, i: 2.0 },
+        { t: 100, n: 55, g: 1.0, i: 1.0 }, // SAI's last sign of life
+        { t: 200, n: 1, g: 0, i: 0 },
+        { t: 200, n: 44, g: 2.0, i: 2.0 },
+      ],
+    })
+
+    // Before retirement: SAI still has future events, ranked by his real gap
+    const before = computeStandings(info, 60)
+    expect(before.map(s => s.driver_number)).toEqual([1, 55, 44])
+    expect(before.find(s => s.driver_number === 55)!.out).toBe(false)
+
+    // After retirement: no more SAI events, so he is out and sinks to the bottom
+    const after = computeStandings(info, 150)
+    expect(after.map(s => s.driver_number)).toEqual([1, 44, 55])
+    const sai = after.find(s => s.driver_number === 55)!
+    expect(sai.out).toBe(true)
+    expect(sai.position).toBe(3)
+  })
+
+  it('orders multiple retired drivers by who retired later', () => {
+    // Two retirements: GAS (#10) stops at t=80, OCO (#31) soldiers on to t=160.
+    // The later retirement is classified ahead of the earlier one.
+    const info = makeInfo({
+      drivers: {
+        '1': { abbreviation: 'VER', team_color: '3671C6' },
+        '10': { abbreviation: 'GAS', team_color: '0093CC' },
+        '31': { abbreviation: 'OCO', team_color: '0093CC' },
+      },
+      dnf: [10, 31],
+      interval_events: [
+        { t: 80, n: 1, g: 0, i: 0 },
+        { t: 80, n: 10, g: 5.0, i: 5.0 }, // GAS's last event
+        { t: 160, n: 1, g: 0, i: 0 },
+        { t: 160, n: 31, g: 9.0, i: 4.0 }, // OCO's last event
+        { t: 300, n: 1, g: 0, i: 0 },
+      ],
+    })
+
+    const standings = computeStandings(info, 350)
+    expect(standings.map(s => s.driver_number)).toEqual([1, 31, 10])
+    expect(standings.find(s => s.driver_number === 10)!.out).toBe(true)
+    expect(standings.find(s => s.driver_number === 31)!.out).toBe(true)
+  })
+
   it('breaks ties among no-gap cars using the position feed, then car number', () => {
     const info = makeInfo({
       drivers: {

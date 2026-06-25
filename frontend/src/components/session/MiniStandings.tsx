@@ -6,6 +6,7 @@ export interface MiniStandingRow {
   team_color: string
   position: number | null
   interval: number | null
+  out?: boolean
 }
 
 export function MiniStandings({ rows, followedDriver, compareDriver, onClickDriver, driversInPit, now }: {
@@ -33,7 +34,7 @@ export function MiniStandings({ rows, followedDriver, compareDriver, onClickDriv
             return (
               <tr
                 key={d.driver_number}
-                className={`border-b border-border/20 ${onClickDriver ? 'cursor-pointer hover:bg-bg-elevated/50' : ''} ${isFollowed ? 'bg-accent/10' : isCompare ? 'bg-bg-elevated' : ''}`}
+                className={`border-b border-border/20 ${onClickDriver ? 'cursor-pointer hover:bg-bg-elevated/50' : ''} ${isFollowed ? 'bg-accent/10' : isCompare ? 'bg-bg-elevated' : ''} ${d.out ? 'opacity-50' : ''}`}
                 onClick={() => onClickDriver?.(d.driver_number)}
               >
                 <td className="py-[3px] px-1 font-mono font-bold text-text-secondary">{d.position || '—'}</td>
@@ -44,7 +45,9 @@ export function MiniStandings({ rows, followedDriver, compareDriver, onClickDriv
                   </div>
                 </td>
                 <td className="py-[3px] px-1 text-right font-mono">
-                  {isFollowed ? (
+                  {d.out ? (
+                    <span className="text-red-400 text-[9px] font-bold tracking-wider">DNF</span>
+                  ) : isFollowed ? (
                     <span className="text-[8px] text-accent font-bold tracking-wider">A</span>
                   ) : isCompare ? (
                     <span className="text-[8px] text-text-secondary font-bold tracking-wider">B</span>

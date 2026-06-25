@@ -48,6 +48,7 @@ export function TrackMapPanel({ circuit, sessionKey, drivers, replayCars, replay
   const standingRows: MiniStandingRow[] = standingsSource.map(s => ({
     driver_number: s.driver_number, abbreviation: s.abbreviation,
     team_color: s.team_color, position: s.position, interval: s.interval,
+    out: 'out' in s ? s.out : false,
   }))
 
   const [compareDriver, setCompareDriver] = useState<number | null>(null)
