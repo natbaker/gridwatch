@@ -94,11 +94,21 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
   const rawDuration = dataStart && dataEnd
     ? (new Date(dataEnd).getTime() - new Date(dataStart).getTime()) / 1000
     : 0
-  // For finished sessions, cap at last lap + 30s to avoid dead space at the end.
+  // For finished sessions, cap at last lap + 30s to avoid dead space at the end —
+  // but never truncate before the last lap or radio clip we actually have. data_end
+  // is the scheduled session window, which can undershoot a long race (red flags,
+  // Monaco-length sessions) or the post-race interview window team radio keeps
+  // recording through.
   // For live sessions, use full planned duration so the timebar has room for new laps.
   const lastLapT = info?.lap_events?.length ? info.lap_events[info.lap_events.length - 1].t : 0
+  const lastRadioT = info?.radio_events?.length ? Math.max(...info.radio_events.map(r => r.t)) : 0
+  const lastKnownEventT = Math.max(lastLapT, lastRadioT)
   const isLive = !!info?.is_live
-  const totalDuration = (lastLapT > 0 && !isLive) ? Math.min(rawDuration, lastLapT + 30) : rawDuration
+  const totalDuration = isLive
+    ? rawDuration
+    : lastKnownEventT > 0
+      ? Math.max(Math.min(rawDuration, lastLapT + 30), lastKnownEventT + 10)
+      : rawDuration
 
   const drivers = info?.drivers ?? {}
 
