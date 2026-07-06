@@ -203,8 +203,12 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
   // Standings follow the authoritative running-order feed (see computeStandings)
   const standings: ReplayStanding[] = info ? computeStandings(info, currentTime) : []
 
-  // Compute active race control flag and per-sector yellows
-  let activeFlag: RaceControlEvent | null = null
+  // Compute active race control flag and per-sector yellows.
+  // The safety car banner is tracked separately from transient yellow/red/chequered
+  // flags so that a later transient flag (and its own 60s expiry) can't clear the
+  // safety car banner out from under an SC period that's still active.
+  let safetyCarFlag: RaceControlEvent | null = null
+  let transientFlag: RaceControlEvent | null = null
   const sectorFlags = new Map<number, { flag: string; t: number }>()
   if (info?.race_control) {
     for (const e of info.race_control) {
@@ -218,21 +222,27 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
         }
       }
       // Track global flag state
-      if (e.flag === 'GREEN' || e.flag === 'CLEAR' || e.flag === 'CHEQUERED') {
-        activeFlag = e.flag === 'CHEQUERED' ? e : null
-      } else if (e.flag === 'YELLOW' || e.flag === 'DOUBLE YELLOW' || e.flag === 'RED' || e.category === 'SafetyCar') {
-        activeFlag = e
+      if (e.category === 'SafetyCar') {
+        safetyCarFlag = e
+      } else if (e.flag === 'GREEN' || e.flag === 'CLEAR' || e.flag === 'CHEQUERED') {
+        safetyCarFlag = null
+        transientFlag = e.flag === 'CHEQUERED' ? e : null
+      } else if (e.flag === 'YELLOW' || e.flag === 'DOUBLE YELLOW' || e.flag === 'RED') {
+        transientFlag = e
       }
     }
-    // Yellow/red flag warnings are transient and expire if no clear event follows;
-    // the safety car banner should persist until an explicit GREEN/CLEAR/CHEQUERED event.
-    if (activeFlag && activeFlag.category !== 'SafetyCar' && currentTime - activeFlag.t > 60) activeFlag = null
+    // Yellow/red/chequered flags are transient and expire if no clear event follows;
+    // the safety car banner persists until an explicit GREEN/CLEAR event.
+    if (transientFlag && currentTime - transientFlag.t > 60) transientFlag = null
     // Expire sector flags after 60s
     for (const [sec, info_] of sectorFlags) {
       if (currentTime - info_.t > 60) sectorFlags.delete(sec)
     }
   }
-  const activeFlagSectors = Array.from(sectorFlags.keys()).sort((a, b) => a - b)
+  // Once the session/race is over, no banner should remain on screen.
+  const sessionEnded = totalDuration > 0 && currentTime >= totalDuration
+  const activeFlag = sessionEnded ? null : (transientFlag ?? safetyCarFlag)
+  const activeFlagSectors = sessionEnded ? [] : Array.from(sectorFlags.keys()).sort((a, b) => a - b)
 
   // Compute current lap
   let currentLap = 0
