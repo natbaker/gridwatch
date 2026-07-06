@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pitWindowEstimate, NOMINAL_STINT_LAPS } from '../components/session/pitWindow'
+import { pitWindowEstimate, NOMINAL_STINT_LAPS } from '../components/session/pitWindowModel'
 import { buildGapSeries } from '../components/session/gapSeries'
 import { parseTimingEvent } from '../hooks/useLiveTimingStream'
 

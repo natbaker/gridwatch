@@ -47,7 +47,6 @@ export const api = {
     const qs = params.toString()
     return fetchJson<RaceResultsResponse>(`/results/race/${round}${qs ? `?${qs}` : ''}`)
   },
-  getSessionResult: (key: number) => fetchJson<SessionResultResponse>(`/results/session/${key}`),
   getWeather: (round: number) => fetchJson<WeatherResponse>(`/weather/${round}`),
   getLiveTiming: (sessionKey?: number) =>
     fetchJson<LiveTimingResponse>(sessionKey ? `/live-timing?session_key=${sessionKey}` : '/live-timing'),

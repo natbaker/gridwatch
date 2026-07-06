@@ -1,8 +1,7 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from app.cache import TTLCache
-from app.circuits import CIRCUITS
 from app.config import settings
 from app.services.clients.openmeteo import OpenMeteoClient
 
@@ -56,18 +55,7 @@ class WeatherFacade:
                 day_label = WEEKDAY_NAMES[dt.weekday()]
             except (ValueError, IndexError):
                 day_label = ""
-
-            forecast.append({
-                "date": day["date"],
-                "day_label": day_label,
-                "temp_high_c": day["temp_high_c"],
-                "temp_low_c": day["temp_low_c"],
-                "precipitation_probability": day["precipitation_probability"],
-                "condition": day["condition"],
-                "condition_icon": day["condition_icon"],
-                "wind_speed_kph": day["wind_speed_kph"],
-                "wind_direction": day["wind_direction"],
-            })
+            forecast.append({**day, "day_label": day_label})
 
         result = {
             "round": round_num,

@@ -436,71 +436,105 @@ export interface DriverStatsResponse {
   warnings: string[]
 }
 
+export interface ChampionshipProbability {
+  code: string
+  name: string
+  team: string
+  team_color: string
+  current_points: number
+  win_probability: number
+  podium_probability: number
+  avg_projected_points: number
+  p10_points?: number
+  p90_points?: number
+}
+
+export interface ConstructorChampionshipProbability {
+  name: string
+  team_color: string
+  current_points: number
+  win_probability: number
+  avg_projected_points: number
+  p10_points?: number
+  p90_points?: number
+}
+
+export interface FormGuideEntry {
+  code: string
+  name: string
+  team: string
+  team_color: string
+  season_avg_points: number
+  recent_avg_points: number
+  points_trend: number
+  season_avg_finish: number
+  recent_avg_finish: number
+  finish_trend: number
+  trending: 'up' | 'down' | 'stable'
+}
+
+export interface TeammateBattleDriver {
+  code: string
+  name: string
+  points: number
+  race_wins: number
+  quali_wins: number
+}
+
+export interface TeammateBattle {
+  team: string
+  team_color: string
+  driver_1: TeammateBattleDriver
+  driver_2: TeammateBattleDriver
+  total_races: number
+  points_gap: number
+  dominance: number
+}
+
+export interface InsightItem {
+  code?: string
+  name?: string
+  team?: string
+  team_color?: string
+  avg_gain?: number
+  consistency?: number
+  avg_points_per_race?: number
+}
+
+export interface Insight {
+  type: string
+  title: string
+  data: InsightItem[]
+}
+
+export interface Projection {
+  code: string
+  name: string
+  team_color: string
+  current_points: number
+  projected_points: number
+  races_remaining: number
+}
+
+export interface DnfRate {
+  code: string
+  name: string
+  team_color: string
+  dnfs: number
+  races: number
+  dnf_rate: number
+}
+
 export interface PredictionsResponse {
   season: number
   total_rounds: number
-  championship_probabilities: {
-    code: string
-    name: string
-    team: string
-    team_color: string
-    current_points: number
-    win_probability: number
-    podium_probability: number
-    avg_projected_points: number
-    p10_points?: number
-    p90_points?: number
-  }[]
-  form_guide: {
-    code: string
-    name: string
-    team: string
-    team_color: string
-    season_avg_points: number
-    recent_avg_points: number
-    points_trend: number
-    season_avg_finish: number
-    recent_avg_finish: number
-    finish_trend: number
-    trending: string
-  }[]
-  teammate_battles: {
-    team: string
-    team_color: string
-    driver_1: { code: string; name: string; points: number; race_wins: number; quali_wins: number }
-    driver_2: { code: string; name: string; points: number; race_wins: number; quali_wins: number }
-    total_races: number
-    dominance: number
-  }[]
-  insights: {
-    type: string
-    title: string
-    data: Record<string, unknown>[]
-  }[]
-  projections: {
-    code: string
-    name: string
-    team_color: string
-    current_points: number
-    projected_points: number
-    races_remaining: number
-  }[]
-  dnf_rates: {
-    code: string
-    name: string
-    team_color: string
-    dnfs: number
-    races: number
-    dnf_rate: number
-  }[]
-  constructor_championship_probabilities: {
-    name: string
-    team_color: string
-    current_points: number
-    win_probability: number
-    podium_probability: number
-    avg_projected_points: number
-  }[]
+  championship_probabilities: ChampionshipProbability[]
+  constructor_championship_probabilities: ConstructorChampionshipProbability[]
+  form_guide: FormGuideEntry[]
+  teammate_battles: TeammateBattle[]
+  insights: Insight[]
+  projections: Projection[]
+  dnf_rates: DnfRate[]
   warnings: string[]
 }
 

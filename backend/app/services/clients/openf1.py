@@ -63,9 +63,6 @@ class OpenF1Client:
         logger.warning("Failed after retries: %s", path)
         return []
 
-    async def get_latest_sessions(self) -> list[dict]:
-        return await self._get("/sessions", params={"meeting_key": "latest"})
-
     async def get_meetings(self, year: int) -> list[dict]:
         return await self._get("/meetings", params={"year": str(year)})
 
