@@ -231,9 +231,9 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
         transientFlag = e
       }
     }
-    // Yellow/red/chequered flags are transient and expire if no clear event follows;
-    // the safety car banner persists until an explicit GREEN/CLEAR event.
-    if (transientFlag && currentTime - transientFlag.t > 60) transientFlag = null
+    // Yellow/red flags are transient and expire if no clear event follows; the
+    // chequered flag and safety car banner persist until the session ends.
+    if (transientFlag && transientFlag.flag !== 'CHEQUERED' && currentTime - transientFlag.t > 60) transientFlag = null
     // Expire sector flags after 60s
     for (const [sec, info_] of sectorFlags) {
       if (currentTime - info_.t > 60) sectorFlags.delete(sec)
