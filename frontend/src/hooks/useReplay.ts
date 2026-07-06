@@ -253,15 +253,18 @@ export function useReplay(sessionKey: number | undefined): ReplayState {
   }
   const totalLaps = lapEvents.length > 0 ? lapEvents[lapEvents.length - 1].lap : 0
 
-  // Compute which drivers are currently in pit
+  // Compute which drivers are currently in pit.
+  // OpenF1's pit event timestamp (p.t) marks the pit-lane *exit* line crossing,
+  // not entry — pit_duration is the full lane transit, so real entry is p.t
+  // minus that duration (falling back to a 30s window if duration is unknown).
   const driversInPit: { driver_number: number; entry_time: number; duration: number | null }[] = []
   const pitEvents = info?.pit_events ?? []
   for (const p of pitEvents) {
-    const endTime = p.d != null ? p.t + p.d : p.t + 30 // fallback 30s if no duration
-    if (p.t <= currentTime && currentTime < endTime) {
+    const entryTime = p.t - (p.d ?? 30)
+    if (entryTime <= currentTime && currentTime < p.t) {
       driversInPit.push({
         driver_number: p.n,
-        entry_time: p.t,
+        entry_time: entryTime,
         duration: p.d,
       })
     }

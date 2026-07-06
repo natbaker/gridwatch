@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useReplay } from '../hooks/useReplay'
 import { api } from '../api/client'
@@ -57,5 +57,38 @@ describe('useReplay totalDuration', () => {
 
     await waitFor(() => expect(result.current.totalDuration).toBeGreaterThan(0))
     expect(result.current.totalDuration).toBeGreaterThanOrEqual(8728.2)
+  })
+})
+
+describe('useReplay driversInPit', () => {
+  it('treats the OpenF1 pit event timestamp as the exit moment, not entry', async () => {
+    // Real pit records (verified against GPS position data): the "date" field
+    // lands ~5s before the car's GPS shows it back on track, i.e. it marks the
+    // pit-lane exit-line crossing. pit_duration is the full lane transit, so
+    // real entry is date - duration, not date.
+    vi.mocked(api.getReplayInfo).mockResolvedValue({
+      data_start: '2026-07-05T15:00:00Z',
+      data_end: '2026-07-05T16:00:00Z',
+      is_live: false,
+      lap_events: [{ t: 1010, lap: 1 }],
+      radio_events: [],
+      pit_events: [{ t: 1000, n: 55, d: 29.2, lap: 48 }],
+      drivers: { '55': { abbreviation: 'SAI', team_color: '#fff' } },
+    } as never)
+
+    const { result } = renderHook(() => useReplay(11326), { wrapper })
+    await waitFor(() => expect(result.current.totalDuration).toBeGreaterThan(0))
+
+    // Mid-stop: entry (1000 - 29.2 = 970.8) < 985 < exit (1000)
+    act(() => result.current.seek(985))
+    expect(result.current.driversInPit.map(p => p.driver_number)).toContain(55)
+
+    // At the recorded timestamp itself, the car has already left the pit lane.
+    act(() => result.current.seek(1000))
+    expect(result.current.driversInPit.map(p => p.driver_number)).not.toContain(55)
+
+    // Before the real entry, the car hasn't pitted yet.
+    act(() => result.current.seek(965))
+    expect(result.current.driversInPit.map(p => p.driver_number)).not.toContain(55)
   })
 })
