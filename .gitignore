@@ -21,3 +21,5 @@ frontend/dist/
 
 # Misc
 test.txt
+.DS_Store
+data/
