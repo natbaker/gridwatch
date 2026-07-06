@@ -2,7 +2,7 @@ import asyncio
 import logging
 import math
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 
@@ -13,6 +13,7 @@ from app.services.circuit_geometry import (
     SVG_WIDTH, SVG_HEIGHT, SVG_PADDING,
     CIRCUIT_KEYS, gps_to_svg, build_bounds_from_circuit_info,
 )
+from app.services import mongo_direct
 from app.services.clients.openf1 import OpenF1Client
 from app.services.session_status import is_live as _is_live
 
@@ -28,11 +29,58 @@ def _parse_dt(value: str | datetime) -> datetime:
     return dt
 
 
+def _team_color(d: dict) -> str:
+    return f"#{d['team_colour']}" if d.get("team_colour") else TEAM_COLORS.get(d.get("team_name", ""), "#888")
+
+
+def _dedupe_pit_stops(pit_raw: list[dict]) -> list[dict]:
+    """Collapse OpenF1 pit records (one per lap spent in the pit lane) into one
+    record per actual stop, grouping consecutive laps per driver. The merged
+    record keeps the first lap's fields and the group's first non-null duration."""
+    by_driver: dict[int, list[dict]] = defaultdict(list)
+    for p in pit_raw:
+        num = p.get("driver_number")
+        if num is not None:
+            by_driver[num].append(p)
+
+    stops = []
+    for entries in by_driver.values():
+        entries.sort(key=lambda x: x.get("lap_number") or 0)
+        groups: list[list[dict]] = []
+        for e in entries:
+            lap = e.get("lap_number") or 0
+            if groups and (lap - (groups[-1][-1].get("lap_number") or 0)) <= 1:
+                groups[-1].append(e)
+            else:
+                groups.append([e])
+        for group in groups:
+            duration = next((e.get("pit_duration") for e in group if e.get("pit_duration")), None)
+            stops.append({**group[0], "pit_duration": duration})
+    return stops
+
+
 class LiveTimingFacade:
     def __init__(self, openf1: OpenF1Client, cache: TTLCache, http_client: httpx.AsyncClient | None = None) -> None:
         self._openf1 = openf1
         self._cache = cache
         self._http = http_client
+
+    async def _fetch_collection(self, collection: str, session_key: int, api_fn,
+                                warnings: list[str] | None = None,
+                                warning_msg: str | None = None) -> list[dict]:
+        """Session data for a collection: MongoDB directly first (bypasses openf1-api's
+        _key deduplication, which collapses gap_fill-imported documents to a single
+        result), then the OpenF1 API. API errors degrade to [] with an optional warning."""
+        docs = await mongo_direct.query_session(collection, session_key)
+        if docs:
+            return docs
+        try:
+            return await api_fn()
+        except Exception as e:
+            logger.warning(f"Fetch failed: {e}")
+            if warnings is not None and warning_msg:
+                warnings.append(warning_msg)
+            return []
 
     async def _find_meeting(self, year: int, round_num: int, race_date: str | None) -> dict | None:
         """Return the OpenF1 meeting for a given Jolpica round, matching by date when provided."""
@@ -46,12 +94,20 @@ class LiveTimingFacade:
         if not race_meetings:
             return None
         if race_date:
-            from datetime import date as date_type
-            target = date_type.fromisoformat(race_date[:10])
-            return min(race_meetings, key=lambda m: abs((date_type.fromisoformat(m["date_start"][:10]) - target).days))
+            target = date.fromisoformat(race_date[:10])
+            return min(race_meetings, key=lambda m: abs((date.fromisoformat(m["date_start"][:10]) - target).days))
         if round_num < 1 or round_num > len(race_meetings):
             return None
         return race_meetings[round_num - 1]
+
+    async def _get_meeting_sessions(self, meeting_key: str) -> list[dict]:
+        cache_key = f"openf1_sessions_{meeting_key}"
+        sessions = self._cache.get(cache_key)
+        if sessions is None:
+            sessions = await self._openf1.get_sessions(meeting_key=meeting_key)
+            if sessions:
+                self._cache.set(cache_key, sessions, 3600)
+        return sessions
 
     async def get_session_key_for_round(self, year: int, round_num: int, session_type: str = "Race", race_date: str | None = None) -> dict:
         """Look up session key by year, round number, and session type."""
@@ -65,13 +121,7 @@ class LiveTimingFacade:
             if not meeting:
                 return {"session_key": None, "error": "Round not found"}
 
-            meeting_key = str(meeting["meeting_key"])
-            sessions_cache_key = f"openf1_sessions_{meeting_key}"
-            sessions = self._cache.get(sessions_cache_key)
-            if sessions is None:
-                sessions = await self._openf1.get_sessions(meeting_key=meeting_key)
-                if sessions:
-                    self._cache.set(sessions_cache_key, sessions, 3600)
+            sessions = await self._get_meeting_sessions(str(meeting["meeting_key"]))
             # Prefer session_name match (e.g. "Race") over session_type match
             # because Sprint has session_type="Race" but session_name="Sprint"
             match = None
@@ -99,13 +149,7 @@ class LiveTimingFacade:
             meeting = await self._find_meeting(year, round_num, race_date)
             if not meeting:
                 return {"sessions": []}
-            meeting_key = str(meeting["meeting_key"])
-            sessions_cache_key = f"openf1_sessions_{meeting_key}"
-            sessions = self._cache.get(sessions_cache_key)
-            if sessions is None:
-                sessions = await self._openf1.get_sessions(meeting_key=meeting_key)
-                if sessions:
-                    self._cache.set(sessions_cache_key, sessions, 3600)
+            sessions = await self._get_meeting_sessions(str(meeting["meeting_key"]))
             result = {
                 "sessions": [
                     {"session_key": s["session_key"], "session_name": s["session_name"]}
@@ -141,7 +185,6 @@ class LiveTimingFacade:
         most_recent = None
 
         for s in sessions:
-            start = datetime.fromisoformat(s["date_start"])
             end_str = s.get("date_end")
             end = datetime.fromisoformat(end_str) if end_str else None
 
@@ -209,27 +252,6 @@ class LiveTimingFacade:
             except Exception as e:
                 logger.warning(f"Session info fetch failed: {e}")
 
-        # Fetch all data in parallel using asyncio.gather
-        async def _safe_fetch(coro, warning_msg: str | None = None):
-            try:
-                return await coro
-            except Exception as e:
-                logger.warning(f"Fetch failed: {e}")
-                if warning_msg:
-                    warnings.append(warning_msg)
-                return []
-
-        from app.services import mongo_direct
-
-        async def _fetch_with_mongo(collection: str, api_fn, warning_msg: str | None = None):
-            try:
-                docs = await mongo_direct.query_session(collection, session_key)
-                if docs:
-                    return docs
-            except Exception:
-                pass
-            return await _safe_fetch(api_fn(), warning_msg)
-
         (
             drivers_raw,
             positions_raw,
@@ -238,12 +260,13 @@ class LiveTimingFacade:
             stints_raw,
             pit_raw,
         ) = await asyncio.gather(
-            _fetch_with_mongo("drivers", lambda: self._openf1.get_drivers(session_key), "Driver data unavailable"),
-            _fetch_with_mongo("position", lambda: self._openf1.get_positions(session_key)),
-            _fetch_with_mongo("intervals", lambda: self._openf1.get_intervals(session_key)),
-            _fetch_with_mongo("laps", lambda: self._openf1.get_laps(session_key)),
-            _fetch_with_mongo("stints", lambda: self._openf1.get_stints(session_key)),
-            _fetch_with_mongo("pit", lambda: self._openf1.get_pit_stops(session_key)),
+            self._fetch_collection("drivers", session_key, lambda: self._openf1.get_drivers(session_key),
+                                   warnings, "Driver data unavailable"),
+            self._fetch_collection("position", session_key, lambda: self._openf1.get_positions(session_key)),
+            self._fetch_collection("intervals", session_key, lambda: self._openf1.get_intervals(session_key)),
+            self._fetch_collection("laps", session_key, lambda: self._openf1.get_laps(session_key)),
+            self._fetch_collection("stints", session_key, lambda: self._openf1.get_stints(session_key)),
+            self._fetch_collection("pit", session_key, lambda: self._openf1.get_pit_stops(session_key)),
         )
 
         if not drivers_raw and not positions_raw:
@@ -264,13 +287,12 @@ class LiveTimingFacade:
             num = d.get("driver_number")
             if num is None:
                 continue
-            team = d.get("team_name", "")
             driver_map[num] = {
                 "driver_number": num,
                 "abbreviation": d.get("name_acronym", ""),
                 "full_name": d.get("full_name", ""),
-                "team": team,
-                "team_color": f"#{d['team_colour']}" if d.get("team_colour") else TEAM_COLORS.get(team, "#888"),
+                "team": d.get("team_name", ""),
+                "team_color": _team_color(d),
                 "country_code": d.get("country_code", ""),
             }
 
@@ -372,6 +394,7 @@ class LiveTimingFacade:
             stint = latest_stints.get(num, {})
             interval = latest_intervals.get(num, {})
             personal_best = best_laps.get(num)
+            best_sectors = best_sectors_by_driver.get(num, [None, None, None])
 
             lap_duration = lap.get("lap_duration")
             is_personal_best = lap_duration is not None and personal_best is not None and lap_duration <= personal_best
@@ -394,9 +417,9 @@ class LiveTimingFacade:
                 "sector_1": lap.get("sector_1"),
                 "sector_2": lap.get("sector_2"),
                 "sector_3": lap.get("sector_3"),
-                "best_sector_1": best_sectors_by_driver.get(num, [None, None, None])[0],
-                "best_sector_2": best_sectors_by_driver.get(num, [None, None, None])[1],
-                "best_sector_3": best_sectors_by_driver.get(num, [None, None, None])[2],
+                "best_sector_1": best_sectors[0],
+                "best_sector_2": best_sectors[1],
+                "best_sector_3": best_sectors[2],
                 "tire_compound": stint.get("compound", ""),
                 "tire_compound_short": stint.get("compound_short", ""),
                 "tire_compound_color": stint.get("compound_color", "#888"),
@@ -416,38 +439,18 @@ class LiveTimingFacade:
         else:
             timing_entries.sort(key=lambda x: x["position"] if x["position"] > 0 else 999)
 
-        # Build pit stop log — group consecutive laps per driver into one stop
-        # (OpenF1 emits one record per lap the car spends in the pit lane)
-        laps_by_driver: dict[int, list[dict]] = defaultdict(list)
-        for p in pit_raw:
-            num = p.get("driver_number")
-            if num is not None:
-                laps_by_driver[num].append(p)
-
         pit_stops = []
-        for num, entries in laps_by_driver.items():
+        for stop in _dedupe_pit_stops(pit_raw):
+            num = stop["driver_number"]
             d = driver_map.get(num, {})
-            # Sort by lap number
-            entries.sort(key=lambda x: x.get("lap_number") or 0)
-            # Group consecutive laps into one stop
-            groups: list[list[dict]] = []
-            for e in entries:
-                lap = e.get("lap_number") or 0
-                if groups and (lap - (groups[-1][-1].get("lap_number") or 0)) <= 1:
-                    groups[-1].append(e)
-                else:
-                    groups.append([e])
-            # One entry per group: use the first lap's date/lap, best duration
-            for group in groups:
-                best_dur = next((e.get("pit_duration") for e in group if e.get("pit_duration")), None)
-                pit_stops.append({
-                    "driver_number": num,
-                    "abbreviation": d.get("abbreviation", str(num)),
-                    "team_color": d.get("team_color", "#888"),
-                    "lap_number": group[0].get("lap_number"),
-                    "pit_duration": best_dur,
-                    "date": group[0].get("date"),
-                })
+            pit_stops.append({
+                "driver_number": num,
+                "abbreviation": d.get("abbreviation", str(num)),
+                "team_color": d.get("team_color", "#888"),
+                "lap_number": stop.get("lap_number"),
+                "pit_duration": stop.get("pit_duration"),
+                "date": stop.get("date"),
+            })
         pit_stops.sort(key=lambda x: x.get("date") or "", reverse=True)
 
         # Strategy (stint history) ordered to match the timing standings.
@@ -546,7 +549,6 @@ class LiveTimingFacade:
         if cached:
             return cached
 
-        # Get session info — try OpenF1 first, fall back to local DB
         session = None
         circuit_name = None
         try:
@@ -557,28 +559,12 @@ class LiveTimingFacade:
         except Exception:
             pass
 
-        if session:
-            start_str = session.get("date_start")
-            end_str = session.get("date_end")
-        else:
-            # Fall back to local DB for downloaded sessions
-            local = get_downloaded_session_info(session_key)
-            if local:
-                start_str = local.get("data_start")
-                circuit_name = local.get("circuit")
-            else:
-                start_str = None
-            end_str = None
-
-        if not start_str:
+        if not session or not session.get("date_start"):
             return None
 
-        start = datetime.fromisoformat(start_str)
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
-        end = datetime.fromisoformat(end_str) if end_str else start + timedelta(hours=2)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=timezone.utc)
+        start = _parse_dt(session["date_start"])
+        end_str = session.get("date_end")
+        end = _parse_dt(end_str) if end_str else start + timedelta(hours=2)
 
         # Try Multiviewer circuit data first (precise official track geometry)
         circuit_info = await self._fetch_circuit_info(session_key, circuit_name)
@@ -586,11 +572,9 @@ class LiveTimingFacade:
             return build_bounds_from_circuit_info(circuit_info, start, end, bounds_key, self._cache)
 
         # Fallback: sample GPS data from mid-session
-        if session:
-            return await self._build_bounds_from_gps(session_key, session, start, end, bounds_key)
-        return None
+        return await self._build_bounds_from_gps(session_key, start, end, bounds_key)
 
-    async def _build_bounds_from_gps(self, session_key: int, session: dict,
+    async def _build_bounds_from_gps(self, session_key: int,
                                       start: datetime, end: datetime, bounds_key: str) -> dict | None:
         """Fallback: build track bounds from GPS location samples."""
         mid = start + (end - start) / 2
@@ -725,9 +709,6 @@ class LiveTimingFacade:
             self._cache.set(cache_key, result, 60)
             return result
 
-        if not raw:
-            return {"cars": [], "warnings": ["No recent location data"]}
-
         # Get latest position per driver, track all positions to detect static GPS
         all_positions: dict[int, list] = {}
         latest: dict[int, dict] = {}
@@ -748,21 +729,7 @@ class LiveTimingFacade:
         if not latest:
             return {"cars": [], "warnings": ["No valid positions"]}
 
-        # Get driver info for colors (cached via timing data)
-        try:
-            drivers_raw = await self._openf1.get_drivers(session_key)
-        except Exception:
-            drivers_raw = []
-
-        driver_info: dict[int, dict] = {}
-        for d in drivers_raw:
-            num = d.get("driver_number")
-            if num is not None:
-                team = d.get("team_name", "")
-                driver_info[num] = {
-                    "abbreviation": d.get("name_acronym", str(num)),
-                    "team_color": f"#{d['team_colour']}" if d.get("team_colour") else TEAM_COLORS.get(team, "#888"),
-                }
+        driver_info = await self._get_driver_info(session_key)
 
         cars = []
         for num, entry in latest.items():
@@ -788,27 +755,21 @@ class LiveTimingFacade:
 
     async def _get_driver_info(self, session_key: int) -> dict[int, dict]:
         """Get driver abbreviations and team colors, cached."""
-        from app.services import mongo_direct
         cache_key = f"driver_info_{session_key}"
         cached = self._cache.get(cache_key)
         if cached:
             return cached
 
-        drivers_raw = await mongo_direct.query_session("drivers", session_key)
-        if not drivers_raw:
-            try:
-                drivers_raw = await self._openf1.get_drivers(session_key)
-            except Exception:
-                drivers_raw = []
+        drivers_raw = await self._fetch_collection(
+            "drivers", session_key, lambda: self._openf1.get_drivers(session_key))
 
         info: dict[int, dict] = {}
         for d in drivers_raw:
             num = d.get("driver_number")
             if num is not None:
-                team = d.get("team_name", "")
                 info[num] = {
                     "abbreviation": d.get("name_acronym", str(num)),
-                    "team_color": f"#{d['team_colour']}" if d.get("team_colour") else TEAM_COLORS.get(team, "#888"),
+                    "team_color": _team_color(d),
                 }
         self._cache.set(cache_key, info, 300)
         return info
@@ -835,27 +796,16 @@ class LiveTimingFacade:
         if not data_start:
             return {"error": "No session start time"}
 
-        start_dt = datetime.fromisoformat(data_start)
-        if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        start_dt = _parse_dt(data_start)
 
         is_live = _is_live(data_start, session.get("date_end", data_end), datetime.now(timezone.utc))
 
-        # Fetch all replay data in parallel.
-        # Use direct MongoDB queries to bypass openf1-api's _key deduplication, which
-        # collapses all gap_fill-imported documents (no _key field) to a single result.
-        from app.services import mongo_direct
-
-        async def _safe(coro):
+        async def _safe(coro, default):
             try:
                 return await coro
             except Exception as e:
                 logger.warning(f"Fetch failed: {e}")
-                return []
-
-        async def _collection(name: str, api_fn) -> list[dict]:
-            docs = await mongo_direct.query_session(name, session_key)
-            return docs if docs else await _safe(api_fn())
+                return default
 
         (
             positions_raw,
@@ -867,14 +817,14 @@ class LiveTimingFacade:
             grid,
             dnf,
         ) = await asyncio.gather(
-            _collection("position", lambda: self._openf1.get_positions(session_key)),
-            _collection("intervals", lambda: self._openf1.get_intervals(session_key)),
-            _collection("race_control", lambda: self._openf1.get_race_control(session_key)),
-            _collection("laps", lambda: self._openf1.get_laps(session_key)),
-            _collection("weather", lambda: self._openf1.get_weather(session_key)),
-            _collection("pit", lambda: self._openf1.get_pit_stops(session_key)),
-            _safe(self._get_starting_grid(session)),
-            _safe(self._get_dnf_drivers(session_key, session)),
+            self._fetch_collection("position", session_key, lambda: self._openf1.get_positions(session_key)),
+            self._fetch_collection("intervals", session_key, lambda: self._openf1.get_intervals(session_key)),
+            self._fetch_collection("race_control", session_key, lambda: self._openf1.get_race_control(session_key)),
+            self._fetch_collection("laps", session_key, lambda: self._openf1.get_laps(session_key)),
+            self._fetch_collection("weather", session_key, lambda: self._openf1.get_weather(session_key)),
+            self._fetch_collection("pit", session_key, lambda: self._openf1.get_pit_stops(session_key)),
+            _safe(self._get_starting_grid(session), {}),
+            _safe(self._get_dnf_drivers(session_key, session), []),
         )
 
         # The position feed only emits on a position *change*, and the initial
@@ -921,8 +871,6 @@ class LiveTimingFacade:
                 "g": round(gap, 3) if isinstance(gap, (int, float)) else None,
                 "i": round(interval, 3) if isinstance(interval, (int, float)) else None,
             })
-
-        position_events.sort(key=lambda e: e["t"])
 
         race_control = []
         for rc in rc_raw:
@@ -1002,28 +950,8 @@ class LiveTimingFacade:
                     last_t = w["t"]
             weather_events = sampled
 
-        # Group consecutive lap entries per driver before building pit events
-        _pit_by_driver: dict[int, list[dict]] = {}
-        for p in pits_raw:
-            num = p.get("driver_number")
-            if num is not None:
-                _pit_by_driver.setdefault(num, []).append(p)
-        pits_deduped = []
-        for num, entries in _pit_by_driver.items():
-            entries.sort(key=lambda x: x.get("lap_number") or 0)
-            groups: list[list[dict]] = []
-            for e in entries:
-                lap = e.get("lap_number") or 0
-                if groups and (lap - (groups[-1][-1].get("lap_number") or 0)) <= 1:
-                    groups[-1].append(e)
-                else:
-                    groups.append([e])
-            for group in groups:
-                best = next((e for e in group if e.get("pit_duration")), group[0])
-                pits_deduped.append({**group[0], "pit_duration": best.get("pit_duration")})
-
         pit_events = []
-        for p in pits_deduped:
+        for p in _dedupe_pit_stops(pits_raw):
             date = p.get("date")
             num = p.get("driver_number")
             duration = p.get("pit_duration")
@@ -1040,12 +968,8 @@ class LiveTimingFacade:
             })
 
         radio_events = []
-        radio_raw = await mongo_direct.query_session("team_radio", session_key)
-        if not radio_raw:
-            try:
-                radio_raw = await self._openf1.get_team_radio(session_key)
-            except Exception:
-                radio_raw = []
+        radio_raw = await self._fetch_collection(
+            "team_radio", session_key, lambda: self._openf1.get_team_radio(session_key))
         for r in radio_raw:
             date = r.get("date")
             num = r.get("driver_number")
@@ -1075,8 +999,8 @@ class LiveTimingFacade:
             "pit_events": pit_events,
             "weather_events": weather_events,
             "radio_events": radio_events,
-            "grid": grid if isinstance(grid, dict) else {},
-            "dnf": dnf if isinstance(dnf, list) else [],
+            "grid": grid,
+            "dnf": dnf,
         }
 
     async def _get_dnf_drivers(self, session_key: int, session: dict) -> list[int]:
@@ -1130,10 +1054,7 @@ class LiveTimingFacade:
         if not bounds:
             return {"positions": []}
 
-        from_dt = datetime.fromisoformat(from_time)
-        if from_dt.tzinfo is None:
-            from_dt = from_dt.replace(tzinfo=timezone.utc)
-
+        from_dt = _parse_dt(from_time)
         to_dt = from_dt + timedelta(seconds=seconds)
 
         try:
@@ -1169,7 +1090,7 @@ class LiveTimingFacade:
             if num in static_drivers:
                 continue
 
-            t = (datetime.fromisoformat(date) - from_dt).total_seconds()
+            t = (_parse_dt(date) - from_dt).total_seconds()
             svg_x, svg_y = gps_to_svg(x, y, bounds)
             positions.append({
                 "t": round(t, 2),
@@ -1183,10 +1104,7 @@ class LiveTimingFacade:
     async def get_car_telemetry(self, session_key: int, driver_number: int,
                                 from_time: str, seconds: int = 30) -> dict:
         """Get car telemetry (throttle/brake/speed/rpm/gear/drs) for a time window."""
-        from_dt = datetime.fromisoformat(from_time)
-        if from_dt.tzinfo is None:
-            from_dt = from_dt.replace(tzinfo=timezone.utc)
-
+        from_dt = _parse_dt(from_time)
         to_dt = from_dt + timedelta(seconds=seconds)
         try:
             raw = await self._openf1.get_car_data(
@@ -1201,7 +1119,7 @@ class LiveTimingFacade:
             date = entry.get("date")
             if not date:
                 continue
-            t = (datetime.fromisoformat(date) - from_dt).total_seconds()
+            t = (_parse_dt(date) - from_dt).total_seconds()
             samples.append({
                 "t": round(t, 2),
                 "spd": entry.get("speed", 0),
@@ -1220,8 +1138,6 @@ class LiveTimingFacade:
 
         Returns speed/throttle/brake channels normalized to 0-100% lap distance.
         """
-        import math
-
         try:
             laps = await self._openf1.get_laps(session_key, driver_number=driver_number)
         except Exception:
@@ -1247,9 +1163,7 @@ class LiveTimingFacade:
 
         lap_number = chosen["lap_number"]
         lap_duration = chosen["lap_duration"]
-        lap_start_dt = datetime.fromisoformat(chosen["date_start"])
-        if lap_start_dt.tzinfo is None:
-            lap_start_dt = lap_start_dt.replace(tzinfo=timezone.utc)
+        lap_start_dt = _parse_dt(chosen["date_start"])
         lap_end_dt = lap_start_dt + timedelta(seconds=lap_duration)
 
         date_gte = lap_start_dt.isoformat()
@@ -1270,10 +1184,7 @@ class LiveTimingFacade:
             date = entry.get("date", "")
             if not date:
                 return 0.0
-            dt = datetime.fromisoformat(date)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return (dt - lap_start_dt).total_seconds()
+            return (_parse_dt(date) - lap_start_dt).total_seconds()
 
         car_rows = [{"t": to_t(e), "speed": e.get("speed") or 0,
                      "throttle": e.get("throttle") or 0, "brake": e.get("brake") or 0}

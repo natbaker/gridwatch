@@ -1,5 +1,5 @@
 import type { LiveTimingEntry } from '../../types'
-import { pitWindowEstimate } from './pitWindow'
+import { pitWindowEstimate } from './pitWindowModel'
 
 interface Props {
   drivers: LiveTimingEntry[]

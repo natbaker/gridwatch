@@ -103,7 +103,6 @@ class ResultsFacade:
         for r in data["results"]:
             team = r["constructor"]
             pos = int(r["position"])
-            winner_time = data["results"][0].get("time") if data["results"] else None
             results.append({
                 "position": pos,
                 "driver": f"{r['given_name']} {r['family_name']}",
@@ -150,15 +149,3 @@ class ResultsFacade:
         }
         self._cache.set(cache_key, result, settings.cache_ttl_results)
         return result
-
-    async def get_session_result(self, session_key: int) -> dict:
-        """Placeholder for session-specific results via OpenF1."""
-        return {
-            "session_key": session_key,
-            "session_name": "Unknown",
-            "short_name": "UNK",
-            "race_name": "",
-            "results": [],
-            "qualifying_segments": None,
-            "warnings": ["Session results not yet implemented"],
-        }

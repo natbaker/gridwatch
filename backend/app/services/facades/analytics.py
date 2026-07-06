@@ -11,6 +11,45 @@ logger = logging.getLogger(__name__)
 
 CURRENT_SEASON = 2026
 
+POINTS_SYSTEM = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+
+# 15% chance each race a driver finishes in a random position — adds variance
+# so even dominant leaders don't hit 100% when the season is still young
+UPSET_RATE = 0.15
+
+
+def _finish_profiles(drivers: list[dict]) -> tuple[dict[str, list[int]], dict[str, float]]:
+    """Per-driver finish distribution (recent 5 races weighted 2x) and DNF rate."""
+    distributions: dict[str, list[int]] = {}
+    dnf_rates: dict[str, float] = {}
+    for d in drivers:
+        prog = d["progression"]
+        finishes = [r["position"] for r in prog]
+        distributions[d["code"]] = finishes + finishes[-5:]
+        dnfs = sum(1 for r in prog if r.get("dnf"))
+        dnf_rates[d["code"]] = dnfs / len(prog) if prog else 0.05
+    return distributions, dnf_rates
+
+
+def _sample_race(codes: list[str], distributions: dict[str, list[int]],
+                 dnf_rates: dict[str, float], rng: random.Random) -> list[str]:
+    """Simulate one race, returning codes ranked by finish.
+
+    Each driver draws from their finish distribution, with an UPSET_RATE chance
+    of a random result and a DNF chance of being classified last. Ties resolve
+    randomly.
+    """
+    sampled = {}
+    for code in codes:
+        if rng.random() < UPSET_RATE:
+            sampled[code] = rng.randint(1, 20)
+        elif rng.random() < dnf_rates.get(code, 0.05):
+            sampled[code] = 20
+        else:
+            sampled[code] = rng.choice(distributions.get(code, [15]))
+    ranked = sorted(sampled.items(), key=lambda x: (x[1], rng.random()))
+    return [code for code, _ in ranked]
+
 
 class AnalyticsFacade:
     def __init__(self, jolpica: JolpicaClient, cache: TTLCache) -> None:
@@ -333,21 +372,8 @@ class AnalyticsFacade:
             } for i, d in enumerate(drivers[:10])]
 
         remaining = total_rounds - completed_rounds
-        points_system = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+        distributions, dnf_rates = _finish_profiles(drivers)
 
-        # Build per-driver finish distributions from recent races (weight recent races 2x)
-        driver_distributions: dict[str, list[int]] = {}
-        driver_dnf_rates: dict[str, float] = {}
-        for d in drivers:
-            prog = d["progression"]
-            finishes = [r["position"] for r in prog]
-            recent = finishes[-5:] if len(finishes) >= 5 else finishes
-            weighted = finishes + recent  # Recent races appear twice
-            driver_distributions[d["code"]] = weighted
-            dnfs = sum(1 for r in prog if r.get("dnf"))
-            driver_dnf_rates[d["code"]] = dnfs / len(prog) if prog else 0.05
-
-        # Run simulations
         win_counts: dict[str, int] = defaultdict(int)
         podium_counts: dict[str, int] = defaultdict(int)
         total_points_sims: dict[str, list[float]] = defaultdict(list)
@@ -356,33 +382,14 @@ class AnalyticsFacade:
 
         rng = random.Random(42)  # Deterministic for caching
 
-        # 15% chance each race a driver finishes in a random position — adds variance
-        # so even dominant leaders don't hit 100% when the season is still young
-        UPSET_RATE = 0.15
-
         for _ in range(n_simulations):
             sim_points = {d["code"]: d["total_points"] for d in drivers}
 
             for _ in range(remaining):
-                # Sample finishes — DNF gives a last-place finish (no points)
-                sampled = {}
-                for code in top_codes:
-                    dnf_rate = driver_dnf_rates.get(code, 0.05)
-                    if rng.random() < UPSET_RATE:
-                        sampled[code] = rng.randint(1, 20)  # random upset
-                    elif rng.random() < dnf_rate:
-                        sampled[code] = 20  # DNF → classified last
-                    else:
-                        dist = driver_distributions.get(code, [15])
-                        sampled[code] = rng.choice(dist)
+                ranked = _sample_race(top_codes, distributions, dnf_rates, rng)
+                for pts, code in zip(POINTS_SYSTEM, ranked):
+                    sim_points[code] += pts
 
-                # Resolve ties by randomizing, then assign points by rank
-                ranked = sorted(sampled.items(), key=lambda x: (x[1], rng.random()))
-                for rank_idx, (code, _) in enumerate(ranked):
-                    if rank_idx < len(points_system):
-                        sim_points[code] += points_system[rank_idx]
-
-            # Find winner
             final_standings = sorted(top_codes, key=lambda c: sim_points[c], reverse=True)
             win_counts[final_standings[0]] += 1
             for c in final_standings[:3]:
@@ -393,7 +400,7 @@ class AnalyticsFacade:
         result = []
         for d in drivers[:10]:
             code = d["code"]
-            pts_list = total_points_sims.get(code, [d["total_points"]])
+            pts_list = sorted(total_points_sims.get(code, [d["total_points"]]))
             result.append({
                 "code": code,
                 "name": d["name"],
@@ -403,8 +410,8 @@ class AnalyticsFacade:
                 "win_probability": round(win_counts.get(code, 0) / n_simulations * 100, 1),
                 "podium_probability": round(podium_counts.get(code, 0) / n_simulations * 100, 1),
                 "avg_projected_points": round(sum(pts_list) / len(pts_list), 0),
-                "p10_points": round(sorted(pts_list)[int(len(pts_list) * 0.1)], 0),
-                "p90_points": round(sorted(pts_list)[int(len(pts_list) * 0.9)], 0),
+                "p10_points": round(pts_list[int(len(pts_list) * 0.1)], 0),
+                "p90_points": round(pts_list[int(len(pts_list) * 0.9)], 0),
             })
 
         return sorted(result, key=lambda x: x["win_probability"], reverse=True)
@@ -424,20 +431,8 @@ class AnalyticsFacade:
             } for i, c in enumerate(constructors)]
 
         remaining = total_rounds - completed_rounds
-        points_system = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
-
-        # Build per-driver distributions (same as driver sim)
-        driver_distributions: dict[str, list[int]] = {}
-        driver_dnf_rates: dict[str, float] = {}
-        driver_team: dict[str, str] = {}
-        for d in drivers:
-            prog = d["progression"]
-            finishes = [r["position"] for r in prog]
-            recent = finishes[-5:] if len(finishes) >= 5 else finishes
-            driver_distributions[d["code"]] = finishes + recent
-            dnfs = sum(1 for r in prog if r.get("dnf"))
-            driver_dnf_rates[d["code"]] = dnfs / len(prog) if prog else 0.05
-            driver_team[d["code"]] = d["team"]
+        distributions, dnf_rates = _finish_profiles(drivers)
+        driver_team = {d["code"]: d["team"] for d in drivers}
 
         constructor_points = {c["name"]: c["total_points"] for c in constructors}
         all_codes = [d["code"] for d in drivers]
@@ -446,28 +441,16 @@ class AnalyticsFacade:
         total_pts_sims: dict[str, list[float]] = defaultdict(list)
 
         rng = random.Random(42)
-        UPSET_RATE = 0.15
 
         for _ in range(n_simulations):
             sim_pts = dict(constructor_points)
 
             for _ in range(remaining):
-                sampled = {}
-                for code in all_codes:
-                    if rng.random() < UPSET_RATE:
-                        sampled[code] = rng.randint(1, 20)
-                    elif rng.random() < driver_dnf_rates.get(code, 0.05):
-                        sampled[code] = 20
-                    else:
-                        dist = driver_distributions.get(code, [15])
-                        sampled[code] = rng.choice(dist)
-
-                ranked = sorted(sampled.items(), key=lambda x: (x[1], rng.random()))
-                for rank_idx, (code, _) in enumerate(ranked):
-                    if rank_idx < len(points_system):
-                        team = driver_team.get(code)
-                        if team and team in sim_pts:
-                            sim_pts[team] += points_system[rank_idx]
+                ranked = _sample_race(all_codes, distributions, dnf_rates, rng)
+                for pts, code in zip(POINTS_SYSTEM, ranked):
+                    team = driver_team.get(code)
+                    if team and team in sim_pts:
+                        sim_pts[team] += pts
 
             winner = max(sim_pts, key=lambda t: sim_pts[t])
             win_counts[winner] += 1
@@ -477,15 +460,15 @@ class AnalyticsFacade:
         result = []
         for c in constructors:
             name = c["name"]
-            pts_list = total_pts_sims.get(name, [c["total_points"]])
+            pts_list = sorted(total_pts_sims.get(name, [c["total_points"]]))
             result.append({
                 "name": name,
                 "team_color": c["team_color"],
                 "current_points": c["total_points"],
                 "win_probability": round(win_counts.get(name, 0) / n_simulations * 100, 1),
                 "avg_projected_points": round(sum(pts_list) / len(pts_list), 0),
-                "p10_points": round(sorted(pts_list)[int(len(pts_list) * 0.1)], 0),
-                "p90_points": round(sorted(pts_list)[int(len(pts_list) * 0.9)], 0),
+                "p10_points": round(pts_list[int(len(pts_list) * 0.1)], 0),
+                "p90_points": round(pts_list[int(len(pts_list) * 0.9)], 0),
             })
 
         return sorted(result, key=lambda x: x["win_probability"], reverse=True)

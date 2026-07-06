@@ -42,7 +42,7 @@ def client(mock_transport):
 
 @pytest.mark.asyncio
 async def test_get_latest_sessions(client):
-    sessions = await client.get_latest_sessions()
+    sessions = await client.get_sessions(meeting_key="latest")
     assert len(sessions) == 2
     assert sessions[0]["session_name"] == "Practice 1"
 

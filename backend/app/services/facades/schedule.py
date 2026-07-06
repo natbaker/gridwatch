@@ -38,10 +38,6 @@ FALLBACK_SCHEDULE = [
     {"round": 24, "name": "Abu Dhabi Grand Prix", "city": "Abu Dhabi", "country": "UAE", "circuit_key": "abu_dhabi", "date_start": "2026-12-04", "date_end": "2026-12-06", "race_date": "2026-12-06T13:00:00Z", "is_sprint": False, "cancelled": False},
 ]
 
-SESSION_ORDER = ["FP1", "FP2", "FP3", "QUAL", "RACE"]
-SPRINT_SESSION_ORDER = ["FP1", "SQ", "SPRINT", "QUAL", "RACE"]
-
-
 class ScheduleFacade:
     def __init__(
         self,
@@ -72,12 +68,12 @@ class ScheduleFacade:
         if not raw_races and season != CURRENT_SEASON:
             return {"season": season, "total_races": 0, "races": [], "warnings": ["Schedule unavailable for this season"]}
 
+        now = datetime.now(timezone.utc)
         if raw_races:
             for r in raw_races:
                 circuit = get_circuit_by_name(
                     r.get("Circuit", {}).get("Location", {}).get("locality", "")
                 )
-                now = datetime.now(timezone.utc)
                 race_dt_str = f"{r['date']}T{r.get('time', '00:00:00Z')}"
                 try:
                     race_dt = datetime.fromisoformat(race_dt_str.replace("Z", "+00:00"))
@@ -87,33 +83,25 @@ class ScheduleFacade:
 
                 # Extract session start times
                 is_sprint = "Sprint" in r or "SprintQualifying" in r
+                session_keys = [
+                    ("FirstPractice", "FP1"),
+                    ("SprintQualifying", "Sprint Qualifying"),
+                    ("Sprint", "Sprint"),
+                    ("Qualifying", "Qualifying"),
+                ] if is_sprint else [
+                    ("FirstPractice", "FP1"),
+                    ("SecondPractice", "FP2"),
+                    ("ThirdPractice", "FP3"),
+                    ("Qualifying", "Qualifying"),
+                ]
                 session_list = []
-                if is_sprint:
-                    for key, label in [
-                        ("FirstPractice", "FP1"),
-                        ("SprintQualifying", "Sprint Qualifying"),
-                        ("Sprint", "Sprint"),
-                        ("Qualifying", "Qualifying"),
-                    ]:
-                        s = r.get(key, {})
-                        if s.get("date") and s.get("time"):
-                            session_list.append({
-                                "name": label,
-                                "start_utc": f"{s['date']}T{s['time']}",
-                            })
-                else:
-                    for key, label in [
-                        ("FirstPractice", "FP1"),
-                        ("SecondPractice", "FP2"),
-                        ("ThirdPractice", "FP3"),
-                        ("Qualifying", "Qualifying"),
-                    ]:
-                        s = r.get(key, {})
-                        if s.get("date") and s.get("time"):
-                            session_list.append({
-                                "name": label,
-                                "start_utc": f"{s['date']}T{s['time']}",
-                            })
+                for key, label in session_keys:
+                    s = r.get(key, {})
+                    if s.get("date") and s.get("time"):
+                        session_list.append({
+                            "name": label,
+                            "start_utc": f"{s['date']}T{s['time']}",
+                        })
                 session_list.append({"name": "Race", "start_utc": race_dt_str})
 
                 races.append({
@@ -139,7 +127,6 @@ class ScheduleFacade:
         else:
             for fb in FALLBACK_SCHEDULE:
                 circuit = CIRCUITS.get(fb["circuit_key"])
-                now = datetime.now(timezone.utc)
                 try:
                     race_dt = datetime.fromisoformat(fb["race_date"].replace("Z", "+00:00"))
                     is_completed = (race_dt + timedelta(hours=3)) < now and not fb["cancelled"]

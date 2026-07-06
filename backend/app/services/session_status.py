@@ -21,14 +21,6 @@ class SessionStatus(str, Enum):
     UPCOMING = "upcoming"
 
 
-class SessionType(str, Enum):
-    PRACTICE = "Practice"
-    QUALIFYING = "Qualifying"
-    SPRINT = "Sprint"
-    SPRINT_QUALIFYING = "Sprint Qualifying"
-    RACE = "Race"
-
-
 def _to_utc(value: str | datetime | None) -> datetime | None:
     if value is None or value == "":
         return None
