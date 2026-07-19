@@ -172,6 +172,14 @@ export interface RaceResultsResponse {
   warnings: string[]
 }
 
+export interface QualifyingResultsResponse {
+  race_name: string
+  round: number
+  date: string
+  qualifying: QualifyingEntry[]
+  warnings: string[]
+}
+
 export interface DayForecast {
   date: string
   day_label: string
