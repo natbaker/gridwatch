@@ -194,8 +194,9 @@ export function SessionPage() {
   // ── No data — fall back to results-only if available ──
   const hasTimingData = !!timingData?.drivers?.length
   const hasResults = !!resultsData?.results?.length
+  const hasQualifying = !!(resultsData?.qualifying && resultsData.qualifying.length > 0)
 
-  if (!hasTimingData && !hasResults) {
+  if (!hasTimingData && !hasResults && !hasQualifying) {
     const liveInfo = scheduleData?.session?.is_live && scheduleData?.race ? {
       name: scheduleData.race.name, circuit: scheduleData.race.circuit,
       country: scheduleData.race.country, flag_emoji: scheduleData.race.flag_emoji,
@@ -211,7 +212,6 @@ export function SessionPage() {
   const country = session?.country ?? ''
   const hasReplay = replay.totalDuration > 0
   const canReplay = isHistorical || isLive || hasReplay
-  const hasQualifying = !!(resultsData?.qualifying && resultsData.qualifying.length > 0)
   const raceDate = resultsData?.date ? new Date(resultsData.date + 'T00:00:00').toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
   }) : ''
@@ -399,7 +399,7 @@ export function SessionPage() {
           )}
 
           {/* Race / qualifying results */}
-          {hasResults && (
+          {(hasResults || hasQualifying) && (
             <ResultsSection
               resultsTab={resultsTab}
               onTabChange={setResultsTab}
