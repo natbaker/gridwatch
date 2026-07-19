@@ -4,7 +4,10 @@ On first run against an empty MongoDB this acts as a full historical bootstrap.
 On subsequent runs it only imports sessions not yet present locally.
 
 Sessions that were previously "imported" but had no actual data (e.g. the script
-ran before a race happened) will be retried automatically.
+ran before a race happened) will be retried automatically. Sessions that started
+recently (see RECHECK_HOURS) get their local lap count re-verified against the
+source even once marked imported, since ingest-realtime can die mid-session and
+leave a partial capture that looks "imported" but isn't complete.
 
 Env vars:
   MONGO_CONNECTION_STRING  default: mongodb://localhost:27017
@@ -18,6 +21,7 @@ import os
 import time
 import urllib.request
 import urllib.error
+from datetime import datetime, timedelta, timezone
 
 from pymongo import MongoClient
 
@@ -36,6 +40,12 @@ PER_DRIVER_ENDPOINTS = ["car_data", "location"]
 
 YEARS = [2023, 2024, 2025, 2026]
 RATE_DELAY = 0.4  # ~25 req/10s, under the 30/10s hosted limit
+
+# Sessions that started this recently get their lap count re-verified against the
+# source even if already marked imported: ingest-realtime can die mid-session
+# (crash, connection drop) and leave a partial capture that "has some data" but
+# isn't complete. Older sessions are trusted once marked imported.
+RECHECK_HOURS = 48
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
@@ -86,6 +96,10 @@ def parse_row(row: dict) -> dict:
     return {k: coerce(v) for k, v in row.items()}
 
 
+def parse_source_dt(value: str) -> datetime:
+    return datetime.strptime(value[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+
+
 def insert(db, collection: str, docs: list):
     if not docs:
         return
@@ -130,26 +144,46 @@ def main():
     mongo = MongoClient(MONGO_URL)
     db = mongo[DB_NAME]
 
-    remote_keys = []
+    sessions_by_key = {}
     for year in YEARS:
         sessions = fetch_json("sessions", {"year": year})
-        remote_keys.extend(s["session_key"] for s in sessions if s.get("session_key"))
+        for s in sessions:
+            if s.get("session_key"):
+                sessions_by_key[s["session_key"]] = s
         time.sleep(RATE_DELAY)
+    remote_keys = list(sessions_by_key)
 
     tracking = {
         doc["session_key"]: doc
         for doc in db["_imported_sessions"].find({}, {"session_key": 1, "has_telemetry": 1, "has_data": 1})
     }
 
-    # Sessions to (re)import: not tracked, or tracked without confirmed data.
-    # First check local MongoDB to avoid re-fetching what ingest-realtime already captured.
-    needs_check = [k for k in remote_keys if k not in tracking or not tracking[k].get("has_data")]
+    now = datetime.now(timezone.utc)
+
+    def is_recent(k: int) -> bool:
+        date_start = sessions_by_key[k].get("date_start")
+        if not date_start:
+            return False
+        try:
+            return now - parse_source_dt(date_start) < timedelta(hours=RECHECK_HOURS)
+        except ValueError:
+            return False
+
+    # Sessions to (re)check: not tracked, tracked without confirmed data, or recent
+    # enough that a mid-session ingest-realtime crash could have left a partial import.
+    needs_check = [
+        k for k in remote_keys
+        if k not in tracking or not tracking[k].get("has_data") or is_recent(k)
+    ]
 
     missing_bulk = []
     for k in needs_check:
-        has_local = bool(db["laps"].count_documents({"session_key": k}, limit=1))
-        if has_local:
-            # Data is already in MongoDB (from ingest-realtime); just fix the tracking entry.
+        local_count = db["laps"].count_documents({"session_key": k})
+        if not local_count:
+            missing_bulk.append(k)
+        elif not is_recent(k):
+            # Older session with some local data — trust it as complete, since
+            # ingest-realtime has had plenty of time to finish the session.
             db["_imported_sessions"].update_one(
                 {"session_key": k},
                 {"$set": {"has_data": True}},
@@ -157,7 +191,26 @@ def main():
             )
             log.info(f"Session {k}: already in MongoDB, marked as imported")
         else:
-            missing_bulk.append(k)
+            # Recent session with some local data — ingest-realtime may have died
+            # partway through, so verify against the source's lap count rather
+            # than trusting "any data at all" as "complete".
+            remote_count = len(fetch_csv_raw("laps", {"session_key": k}))
+            time.sleep(RATE_DELAY)
+            if remote_count > local_count:
+                log.info(f"Session {k}: local has {local_count} laps, source has {remote_count} — reimporting")
+                # Clear the partial capture first — these collections have no unique
+                # index, so importing on top of it would just duplicate every row
+                # ingest-realtime already wrote.
+                for collection in BULK_ENDPOINTS + PER_DRIVER_ENDPOINTS:
+                    db[collection].delete_many({"session_key": k})
+                missing_bulk.append(k)
+            else:
+                db["_imported_sessions"].update_one(
+                    {"session_key": k},
+                    {"$set": {"has_data": True}},
+                    upsert=True,
+                )
+                log.info(f"Session {k}: local lap count matches source ({local_count}), marked as imported")
 
     missing_telemetry = (
         [] if SKIP_TELEMETRY
