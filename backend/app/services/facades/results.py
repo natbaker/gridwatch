@@ -113,7 +113,15 @@ class ResultsFacade:
             if stale:
                 stale["warnings"] = ["Using cached results"]
                 return stale
-            return {"race_name": "", "round": jolpica_round, "circuit": "", "date": "", "results": [], "qualifying": [], "warnings": ["Results unavailable"]}
+            # The race itself may not have happened yet (e.g. mid-weekend, before
+            # Sunday) — qualifying can still be fetched independently in that case.
+            qualifying = []
+            try:
+                qual_data = await self._jolpica.get_qualifying_results(season, round_num)
+                qualifying = self._map_qualifying_entries(qual_data.get("qualifying", []))
+            except Exception as qe:
+                logger.warning(f"Round {round_num} qualifying failed: {qe}")
+            return {"race_name": "", "round": jolpica_round, "circuit": "", "date": "", "results": [], "qualifying": qualifying, "warnings": ["Results unavailable"]}
 
         results = []
         for r in data["results"]:

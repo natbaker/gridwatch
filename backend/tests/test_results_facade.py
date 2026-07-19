@@ -88,3 +88,19 @@ async def test_get_qualifying_results_empty_when_no_cache_and_fetch_fails():
 
     assert result["qualifying"] == []
     assert result["warnings"] == ["Qualifying results unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_get_race_results_still_returns_qualifying_when_race_not_run_yet():
+    """Mid-weekend: qualifying is done but the race (Sunday) hasn't happened, so
+    get_round_results 404s. get_race_results should still surface qualifying."""
+    jolpica = _make_jolpica_mock()
+    jolpica.get_round_results.side_effect = Exception("race not run yet")
+    facade = _make_facade(jolpica=jolpica, cache=TTLCache())
+
+    result = await facade.get_race_results(12, season=2026)
+
+    assert result["results"] == []
+    assert result["warnings"] == ["Results unavailable"]
+    assert len(result["qualifying"]) == 2
+    assert result["qualifying"][0]["driver"] == "Max Verstappen"
