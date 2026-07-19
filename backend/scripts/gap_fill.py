@@ -5,7 +5,7 @@ On subsequent runs it only imports sessions not yet present locally.
 
 Sessions that were previously "imported" but had no actual data (e.g. the script
 ran before a race happened) will be retried automatically. Sessions that started
-recently (see RECHECK_HOURS) get their local lap count re-verified against the
+recently (see RECHECK_HOURS) get their max lap number re-verified against the
 source even once marked imported, since ingest-realtime can die mid-session and
 leave a partial capture that looks "imported" but isn't complete.
 
@@ -115,6 +115,13 @@ def parse_source_dt(value: str) -> datetime:
     return datetime.strptime(value[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
 
 
+def _row_lap_number(row: dict) -> int:
+    try:
+        return int(row.get("lap_number") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def insert(db, collection: str, docs: list):
     if not docs:
         return
@@ -193,8 +200,8 @@ def main():
 
     missing_bulk = []
     for k in needs_check:
-        local_count = db["laps"].count_documents({"session_key": k})
-        if not local_count:
+        has_local = bool(db["laps"].count_documents({"session_key": k}, limit=1))
+        if not has_local:
             missing_bulk.append(k)
         elif not is_recent(k):
             # Older session with some local data — trust it as complete, since
@@ -207,10 +214,18 @@ def main():
             log.info(f"Session {k}: already in MongoDB, marked as imported")
         else:
             # Recent session with some local data — ingest-realtime may have died
-            # partway through, so verify against the source's lap count rather
-            # than trusting "any data at all" as "complete".
+            # partway through, so verify against the source's *max lap number*
+            # rather than trusting "any data at all" as "complete". Raw document
+            # counts aren't comparable: ingest-realtime writes several partial-
+            # update rows per lap (one per sector), while the source's bulk CSV
+            # export returns roughly one row per lap — so a 9-lap local capture
+            # can have far more rows than a complete 45-lap source export.
+            local_max_lap = next(iter(db["laps"].aggregate([
+                {"$match": {"session_key": k}},
+                {"$group": {"_id": None, "m": {"$max": "$lap_number"}}},
+            ])), {}).get("m") or 0
             try:
-                remote_count = len(fetch_csv_raw("laps", {"session_key": k}, strict=True))
+                remote_rows = fetch_csv_raw("laps", {"session_key": k}, strict=True)
             except RateLimited:
                 # Don't let an exhausted-retries failure masquerade as "source has
                 # 0 laps" — that would wrongly mark a partial capture as complete.
@@ -218,8 +233,9 @@ def main():
                 log.warning(f"Session {k}: rate limited while verifying against source, will recheck next run")
                 continue
             time.sleep(RATE_DELAY)
-            if remote_count > local_count:
-                log.info(f"Session {k}: local has {local_count} laps, source has {remote_count} — reimporting")
+            remote_max_lap = max((_row_lap_number(r) for r in remote_rows), default=0)
+            if remote_max_lap > local_max_lap:
+                log.info(f"Session {k}: local reached lap {local_max_lap}, source reached lap {remote_max_lap} — reimporting")
                 # Clear the partial capture first — these collections have no unique
                 # index, so importing on top of it would just duplicate every row
                 # ingest-realtime already wrote.
@@ -232,7 +248,7 @@ def main():
                     {"$set": {"has_data": True}},
                     upsert=True,
                 )
-                log.info(f"Session {k}: local lap count matches source ({local_count}), source had {remote_count}")
+                log.info(f"Session {k}: local lap {local_max_lap} matches or exceeds source lap {remote_max_lap}")
 
     missing_telemetry = (
         [] if SKIP_TELEMETRY
