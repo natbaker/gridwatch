@@ -123,7 +123,9 @@ export function SessionPage() {
   )
   const radio = useRadio(replay.currentTime, follow.followedDriver, replay.radioEvents)
 
-  const [resultsTab, setResultsTab] = useState<'race' | 'qualifying'>('race')
+  const [resultsTab, setResultsTab] = useState<'race' | 'qualifying'>(
+    searchParams.get('tab') === 'qualifying' ? 'qualifying' : 'race'
+  )
   const didLiveSeekRef = useRef(false)
 
   // Keyboard shortcuts for replay playback (space/arrows/L)
