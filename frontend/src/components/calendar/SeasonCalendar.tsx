@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useSchedule } from '../../hooks/useSchedule'
 import { useSeason } from '../../hooks/useSeason'
+import { useNextSession } from '../../hooks/useNextSession'
 import { LoadingSkeleton } from '../common/LoadingSkeleton'
 import type { Race } from '../../types'
 
@@ -110,7 +111,10 @@ function ExpandedRaceCard({ race }: { race: Race }) {
 export function SeasonCalendar() {
   const { data, isLoading } = useSchedule()
   const { season } = useSeason()
+  const { data: nextSession } = useNextSession()
   const [expandedRound, setExpandedRound] = useState<number | null>(null)
+
+  const liveRound = nextSession?.session?.is_live ? nextSession.race.round : null
 
   if (isLoading) {
     return (
@@ -182,8 +186,19 @@ export function SeasonCalendar() {
                 </span>
               )}
               {isFuture && (
-                <span className="text-[10px] text-accent ml-auto">
-                  {isExpanded ? 'COLLAPSE ▲' : 'SCHEDULE ▼'}
+                <span className="flex items-center gap-3 ml-auto">
+                  {race.round === liveRound && (
+                    <Link
+                      to="/live"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[10px] text-green-400 font-mono font-bold tracking-wider"
+                    >
+                      ● LIVE
+                    </Link>
+                  )}
+                  <span className="text-[10px] text-accent">
+                    {isExpanded ? 'COLLAPSE ▲' : 'SCHEDULE ▼'}
+                  </span>
                 </span>
               )}
             </div>
