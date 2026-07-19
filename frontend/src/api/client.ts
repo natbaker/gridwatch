@@ -5,6 +5,7 @@ import type {
   ConstructorStandingsResponse,
   SessionResultResponse,
   RaceResultsResponse,
+  QualifyingResultsResponse,
   LiveTimingResponse,
   CarLocationsResponse,
   ReplayInfo,
@@ -46,6 +47,13 @@ export const api = {
     if (raceDate) params.set('race_date', raceDate)
     const qs = params.toString()
     return fetchJson<RaceResultsResponse>(`/results/race/${round}${qs ? `?${qs}` : ''}`)
+  },
+  getQualifyingResults: (round: number, season?: number, raceDate?: string) => {
+    const params = new URLSearchParams()
+    if (season) params.set('season', String(season))
+    if (raceDate) params.set('race_date', raceDate)
+    const qs = params.toString()
+    return fetchJson<QualifyingResultsResponse>(`/results/qualifying/${round}${qs ? `?${qs}` : ''}`)
   },
   getWeather: (round: number) => fetchJson<WeatherResponse>(`/weather/${round}`),
   getLiveTiming: (sessionKey?: number) =>

@@ -3,6 +3,7 @@ import { SessionSchedule } from '../components/dashboard/SessionSchedule'
 import { WeatherCard } from '../components/dashboard/WeatherCard'
 import { StandingsSnapshot } from '../components/dashboard/StandingsSnapshot'
 import { LastRaceResult } from '../components/dashboard/LastRaceResult'
+import { QualifyingResult } from '../components/dashboard/QualifyingResult'
 import { NewsFeed } from '../components/dashboard/NewsFeed'
 import { VideoFeed } from '../components/dashboard/VideoFeed'
 import { useSeason } from '../hooks/useSeason'
@@ -38,19 +39,22 @@ export function DashboardPage() {
           <StandingsSnapshot type="drivers" />
         </div>
         <div className="animate-fade-in-up" style={{ animationDelay: '200ms' }}>
-          <LastRaceResult />
+          <QualifyingResult />
         </div>
         <div className="animate-fade-in-up" style={{ animationDelay: '250ms' }}>
+          <LastRaceResult />
+        </div>
+        <div className="animate-fade-in-up" style={{ animationDelay: '300ms' }}>
           <StandingsSnapshot type="constructors" />
         </div>
         {isCurrentSeason && (
-          <div className="animate-fade-in-up" style={{ animationDelay: '300ms' }}>
+          <div className="animate-fade-in-up" style={{ animationDelay: '350ms' }}>
             <NewsFeed />
           </div>
         )}
       </div>
       {isCurrentSeason && (
-        <div className="animate-fade-in-up" style={{ animationDelay: '350ms' }}>
+        <div className="animate-fade-in-up" style={{ animationDelay: '400ms' }}>
           <VideoFeed />
         </div>
       )}
