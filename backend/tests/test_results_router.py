@@ -25,3 +25,11 @@ async def test_race_results_returns_200(client):
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, dict)
+
+
+@pytest.mark.asyncio
+async def test_qualifying_results_returns_200(client):
+    resp = await client.get("/api/results/qualifying/1?season=2024")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "qualifying" in data
