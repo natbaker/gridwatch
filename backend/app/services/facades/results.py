@@ -15,6 +15,22 @@ class ResultsFacade:
         self._jolpica = jolpica
         self._cache = cache
 
+    def _map_qualifying_entries(self, qual_list: list[dict]) -> list[dict]:
+        entries = []
+        for q in qual_list:
+            team = q["constructor"]
+            entries.append({
+                "position": int(q["position"]),
+                "driver": f"{q['given_name']} {q['family_name']}",
+                "abbreviation": q["code"],
+                "team": team,
+                "team_color": TEAM_COLORS.get(team, "#888888"),
+                "q1": q.get("q1"),
+                "q2": q.get("q2"),
+                "q3": q.get("q3"),
+            })
+        return entries
+
     async def get_latest_results(self, season: int = CURRENT_SEASON) -> dict:
         cache_key = f"results_latest_{season}"
         cached = self._cache.get(cache_key)
@@ -123,18 +139,7 @@ class ResultsFacade:
         qualifying = []
         try:
             qual_data = await self._jolpica.get_qualifying_results(season, round_num)
-            for q in qual_data.get("qualifying", []):
-                team = q["constructor"]
-                qualifying.append({
-                    "position": int(q["position"]),
-                    "driver": f"{q['given_name']} {q['family_name']}",
-                    "abbreviation": q["code"],
-                    "team": team,
-                    "team_color": TEAM_COLORS.get(team, "#888888"),
-                    "q1": q.get("q1"),
-                    "q2": q.get("q2"),
-                    "q3": q.get("q3"),
-                })
+            qualifying = self._map_qualifying_entries(qual_data.get("qualifying", []))
         except Exception as e:
             logger.warning(f"Round {round_num} qualifying failed: {e}")
 
@@ -145,6 +150,34 @@ class ResultsFacade:
             "date": data.get("date", ""),
             "results": results,
             "qualifying": qualifying,
+            "warnings": warnings,
+        }
+        self._cache.set(cache_key, result, settings.cache_ttl_results)
+        return result
+
+    async def get_qualifying_results(self, round_num: int, season: int = CURRENT_SEASON, race_date: str | None = None) -> dict:
+        jolpica_round = await self._resolve_jolpica_round(season, round_num, race_date)
+        cache_key = f"results_qualifying_{season}_{jolpica_round}"
+        cached = self._cache.get(cache_key)
+        if cached:
+            return cached
+
+        warnings = []
+        try:
+            data = await self._jolpica.get_qualifying_results(season, jolpica_round)
+        except Exception as e:
+            logger.warning(f"Round {round_num} qualifying failed: {e}")
+            stale = self._cache.get_stale(cache_key)
+            if stale:
+                stale["warnings"] = ["Using cached results"]
+                return stale
+            return {"race_name": "", "round": jolpica_round, "date": "", "qualifying": [], "warnings": ["Qualifying results unavailable"]}
+
+        result = {
+            "race_name": data["race_name"],
+            "round": round_num,
+            "date": data.get("date", ""),
+            "qualifying": self._map_qualifying_entries(data.get("qualifying", [])),
             "warnings": warnings,
         }
         self._cache.set(cache_key, result, settings.cache_ttl_results)
