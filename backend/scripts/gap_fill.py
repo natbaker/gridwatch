@@ -39,7 +39,10 @@ BULK_ENDPOINTS = [
 PER_DRIVER_ENDPOINTS = ["car_data", "location"]
 
 YEARS = [2023, 2024, 2025, 2026]
-RATE_DELAY = 0.4  # ~25 req/10s, under the 30/10s hosted limit
+# The hosted API's actual limit is 30 requests/minute (confirmed via its 429 body,
+# "Max 30 requests/minute") — not the 30-per-10s this delay used to assume, which
+# was 6x too fast and caused frequent 429s masked as empty responses.
+RATE_DELAY = 2.1
 
 # Sessions that started this recently get their lap count re-verified against the
 # source even if already marked imported: ingest-realtime can die mid-session
@@ -51,7 +54,17 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
 
 
-def _get(url: str, timeout: int) -> bytes:
+class RateLimited(Exception):
+    """Raised when retries are exhausted due to sustained 429s — distinct from a
+    confirmed-empty (404/204/422) response, so callers that need to trust an
+    empty result as authoritative can tell the difference."""
+
+
+def _get(url: str, timeout: int, strict: bool = False) -> bytes:
+    """Fetch a URL, retrying on 429. On exhausted retries, returns b"" by default
+    (matches confirmed-empty responses) unless ``strict``, in which case it raises
+    RateLimited — for callers where treating "gave up" as "source has 0 rows"
+    would be actively wrong (e.g. deciding a partial capture is "complete")."""
     for attempt in range(5):
         try:
             with urllib.request.urlopen(url, timeout=timeout) as r:
@@ -65,6 +78,8 @@ def _get(url: str, timeout: int) -> bytes:
                 time.sleep(wait)
                 continue
             raise
+    if strict:
+        raise RateLimited(url)
     return b""
 
 
@@ -74,10 +89,10 @@ def fetch_json(path: str, params: dict) -> list:
     return json.loads(raw) if raw else []
 
 
-def fetch_csv_raw(path: str, params: dict) -> list[dict]:
+def fetch_csv_raw(path: str, params: dict, strict: bool = False) -> list[dict]:
     import csv, io
     qs = "&".join(f"{k}={v}" for k, v in {**params, "csv": "true"}.items())
-    raw = _get(f"{SOURCE_URL}/{path}?{qs}", timeout=300)
+    raw = _get(f"{SOURCE_URL}/{path}?{qs}", timeout=300, strict=strict)
     return list(csv.DictReader(io.StringIO(raw.decode()))) if raw else []
 
 
@@ -194,7 +209,14 @@ def main():
             # Recent session with some local data — ingest-realtime may have died
             # partway through, so verify against the source's lap count rather
             # than trusting "any data at all" as "complete".
-            remote_count = len(fetch_csv_raw("laps", {"session_key": k}))
+            try:
+                remote_count = len(fetch_csv_raw("laps", {"session_key": k}, strict=True))
+            except RateLimited:
+                # Don't let an exhausted-retries failure masquerade as "source has
+                # 0 laps" — that would wrongly mark a partial capture as complete.
+                # Leave it unmarked; the next run will re-check.
+                log.warning(f"Session {k}: rate limited while verifying against source, will recheck next run")
+                continue
             time.sleep(RATE_DELAY)
             if remote_count > local_count:
                 log.info(f"Session {k}: local has {local_count} laps, source has {remote_count} — reimporting")
@@ -210,7 +232,7 @@ def main():
                     {"$set": {"has_data": True}},
                     upsert=True,
                 )
-                log.info(f"Session {k}: local lap count matches source ({local_count}), marked as imported")
+                log.info(f"Session {k}: local lap count matches source ({local_count}), source had {remote_count}")
 
     missing_telemetry = (
         [] if SKIP_TELEMETRY
